@@ -1,4 +1,4 @@
-"""Command-line entry point. Subcommands: map, run, show, view, new-bot."""
+"""Command-line entry point. Subcommands: map, run, show, view, play, new-bot."""
 
 import argparse
 import json
@@ -8,6 +8,7 @@ from pathlib import Path
 
 from spacetaxi import __version__
 from spacetaxi.maps import MapError, load_map
+from spacetaxi.play import build_html as build_play_html
 from spacetaxi.runner import BOTS_DIR, BotError, format_table, run
 from spacetaxi.sim import Rules
 from spacetaxi.show import ReplayError, frame, get_round, get_tick, load_replay, render
@@ -59,6 +60,19 @@ def build_parser() -> argparse.ArgumentParser:
     view_cmd.add_argument("--port", type=int, default=8000,
                           help="port to serve the page on (default 8000)")
     view_cmd.set_defaults(func=cmd_view)
+
+    play_cmd = commands.add_parser(
+        "play", help="fly a taxi by hand in the browser (writes an HTML file or serves it)")
+    play_cmd.add_argument("--map", default="cavern", help="bundled map name or map file path")
+    play_cmd.add_argument(
+        "--rule", action="append", default=[], metavar="KEY=VALUE",
+        help="override one rule constant with an integer, e.g. gravity=3 (repeatable)",
+    )
+    play_cmd.add_argument("--out", metavar="FILE",
+                          help="write one self-contained HTML file instead of serving it")
+    play_cmd.add_argument("--port", type=int, default=8000,
+                          help="port to serve the page on (default 8000)")
+    play_cmd.set_defaults(func=cmd_play)
 
     new_bot_cmd = commands.add_parser("new-bot", help="write a starter bot (a copy of greedy)")
     new_bot_cmd.add_argument("path", help="the .py file to create; never overwritten")
@@ -165,20 +179,34 @@ def cmd_view(args: argparse.Namespace) -> int:
     except ReplayError as exc:
         print(f"spacetaxi view: error: {exc}", file=sys.stderr)
         return 2
-    if args.out:
+    return write_or_serve("view", "the viewer", html, args.out, args.port)
+
+
+def cmd_play(args: argparse.Namespace) -> int:
+    try:
+        html = build_play_html(load_map(args.map), parse_rules(args.rule))
+    except (MapError, RuleError) as exc:
+        print(f"spacetaxi play: error: {exc}", file=sys.stderr)
+        return 2
+    return write_or_serve("play", "the flight lab", html, args.out, args.port)
+
+
+def write_or_serve(command: str, what: str, html: str, out: str | None, port: int) -> int:
+    """Write `html` to `out`, or serve it on `port` until Ctrl-C."""
+    if out:
         try:
-            Path(args.out).write_text(html, encoding="utf-8")
+            Path(out).write_text(html, encoding="utf-8")
         except OSError as exc:
-            print(f"spacetaxi view: error: {exc}", file=sys.stderr)
+            print(f"spacetaxi {command}: error: {exc}", file=sys.stderr)
             return 2
-        print(f"wrote {args.out}")
+        print(f"wrote {out}")
         return 0
     try:
-        server = make_server(html, args.port)
+        server = make_server(html, port)
     except OSError as exc:
-        print(f"spacetaxi view: error: cannot serve on port {args.port}: {exc}", file=sys.stderr)
+        print(f"spacetaxi {command}: error: cannot serve on port {port}: {exc}", file=sys.stderr)
         return 2
-    print(f"serving the viewer at http://localhost:{args.port}/ (Ctrl-C stops)", flush=True)
+    print(f"serving {what} at http://localhost:{port}/ (Ctrl-C stops)", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

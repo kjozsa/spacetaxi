@@ -27,7 +27,7 @@ uv run spacetaxi --help
 ```
 
 `spacetaxi` is the command-line entry point. Its subcommands (`map`, `run`, `show`, `view`,
-`new-bot`)
+`play`, `new-bot`)
 are added as the game grows; `spacetaxi <command> --help` describes each one.
 
 ## Watch a replay in the browser
@@ -44,6 +44,18 @@ off and on, `M` mutes and unmutes; the bar has a scrub bar and a round selector.
 hum, crash, pickup, delivery, round jingles) are synthesised with Web Audio, no audio files.
 The page makes no external requests. Its browser tests (`tests/e2e/`) need Chromium once:
 `uv run playwright install chromium`; they skip without it.
+
+## Fly a taxi by hand
+
+```sh
+uv run spacetaxi play --out play.html                       # the cavern map, one self-contained file
+uv run spacetaxi play --map canyon --rule gravity=3 --port 8000   # or serve it
+```
+
+The flight lab: one taxi on the real map and rules, flown with the arrow keys (`R` restarts) or
+the touch buttons on a phone, to feel what a bot is up against. The dials change the physics
+live and list the `--rule` flags for what you set. Its physics is a port of the simulation;
+`tests/e2e/test_play.py` checks it ticks exactly like `World`.
 
 ## Write a bot
 
