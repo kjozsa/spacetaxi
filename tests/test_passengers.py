@@ -20,11 +20,19 @@ def pad(w, pid):
     return next(p for p in w.map.pads if p.id == pid)
 
 
+def rest_on(w, t, p, x):
+    """Put taxi `t` centred over column `x` with its box resting just above pad `p`."""
+    r = w.rules
+    t.fx = (p.x if x is None else x) * r.units_per_cell + r.units_per_cell // 2
+    t.fy = p.y * r.units_per_cell - r.taxi_half_height - 1
+    t.x, t.y = t.fx // r.units_per_cell, t.fy // r.units_per_cell
+
+
 def park(w, i, pid, x=None):
     """Put taxi `i` landed on pad `pid` (it landed some earlier tick)."""
     p = pad(w, pid)
     t = w.taxis[i]
-    t.x, t.y = (p.x if x is None else x), p.y - 1
+    rest_on(w, t, p, x)
     t.vx = t.vy = 0
     t.state, t.pad = LANDED, pid
     return t
@@ -34,7 +42,7 @@ def hover(w, i, pid, x=None):
     """Put taxi `i` right above pad `pid` so that coasting this tick lands it softly."""
     p = pad(w, pid)
     t = w.taxis[i]
-    t.x, t.y = (p.x if x is None else x), p.y - 1
+    rest_on(w, t, p, x)
     t.vx = 0
     t.vy = 0 if w.tick % w.rules.gravity_every == 0 else 1
     t.state, t.pad = FLYING, None
@@ -334,7 +342,7 @@ def test_crash_while_carrying_loses_the_passenger():
     w = world()
     t = hover(w, 0, "A")
     t.passenger = {"id": 5, "to": "C", "fare": 58}
-    t.vy = 3  # hard landing
+    t.vy = w.rules.safe_landing_vy  # hard landing, with gravity
     events = w.step({})
     assert events == [
         {"type": "crash", "taxi": "p", "cause": "hard_landing"},
@@ -348,7 +356,7 @@ def test_crash_while_carrying_loses_the_passenger():
 def test_hard_landing_on_a_passengers_pad_does_not_pick_up():
     w = world()
     p = add_passenger(w, "A", "B")
-    hover(w, 0, "A").vy = 3
+    hover(w, 0, "A").vy = w.rules.safe_landing_vy
     events = w.step({})
     assert of_type(events, "crash") and not of_type(events, "pickup")
     assert w.passengers == [p]
@@ -430,7 +438,7 @@ def test_events_have_the_documented_shapes():
     add_passenger(w, "A", "B")
     hover(w, 0, "A")
     t = hover(w, 1, "C")
-    t.passenger, t.vy = {"id": 99, "to": "B", "fare": 62}, 3
+    t.passenger, t.vy = {"id": 99, "to": "B", "fare": 62}, w.rules.safe_landing_vy
     for tick in range(12):
         moves = {"p": TAKEOFF} if w.taxis[0].state == LANDED else {}
         if w.taxis[0].passenger and w.taxis[0].state == FLYING:

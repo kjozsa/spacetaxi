@@ -4,6 +4,7 @@ import pytest
 
 from spacetaxi.cli import main
 from spacetaxi.show import render
+from spacetaxi.sim import Rules
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SNAPSHOT = FIXTURES / "show" / "passengers_seed5_tick100.txt"
@@ -31,7 +32,7 @@ def test_round_option(replay, capsys):
 
 
 @pytest.mark.parametrize("extra", [
-    ["--tick", "0"], ["--tick", "376"], ["--round", "3", "--tick", "1"],
+    ["--tick", "0"], ["--tick", str(Rules().round_ticks + 1)], ["--round", "3", "--tick", "1"],
     ["--round", "0", "--tick", "1"], [],
 ])
 def test_out_of_range_exits_2(replay, capsys, extra):
@@ -79,8 +80,8 @@ def test_watch_plays_round(replay, capsys, monkeypatch):
     monkeypatch.setattr("spacetaxi.cli.time.sleep", sleeps.append)
     assert main(["show", replay, "--watch", "--fps", "50"]) == 0
     out = capsys.readouterr().out
-    assert len(sleeps) == 375 and sleeps[0] == pytest.approx(0.02)
-    assert "round 1 tick 1\n" in out and "round 1 tick 375\n" in out
+    assert len(sleeps) == Rules().round_ticks and sleeps[0] == pytest.approx(0.02)
+    assert "round 1 tick 1\n" in out and f"round 1 tick {Rules().round_ticks}\n" in out
 
 
 def test_watch_ctrl_c_exits_0(replay, capsys, monkeypatch):
