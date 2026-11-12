@@ -38,6 +38,18 @@ def test_replay_data_compacts_ticks():
     assert tick["x"][2][4] == 1
 
 
+def test_replay_data_has_each_players_move(tmp_path):
+    assert all(m == [0, 0] for m in replay_data(str(STACKED))[0]["ticks"][0]["m"])  # no moves
+    replay = tmp_path / "r.jsonl"
+    assert main(["run", "--map", "canyon", "--bots", "lander,random", "--rounds", "1",
+                 "--seed", "1", "--replay", str(replay)]) == 0
+    lines = [json.loads(line) for line in replay.read_text().splitlines()]
+    raw = [m for m in lines if m["type"] == "tick"]
+    [rnd] = replay_data(str(replay))
+    for msg, tick in zip(raw, rnd["ticks"], strict=True):
+        assert tick["m"] == [[msg["moves"][p]["ax"], msg["moves"][p]["ay"]] for p in rnd["players"]]
+
+
 def test_embedded_data_cannot_close_the_script_tag(tmp_path):
     replay = tmp_path / "r.jsonl"
     replay.write_text(STACKED.read_text().replace('"alice"', '"</script><b>"'))

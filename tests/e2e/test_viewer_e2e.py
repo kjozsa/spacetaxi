@@ -1,8 +1,8 @@
 """End-to-end tests of the web viewer in headless Chromium (Playwright).
 
 Install the browser once: `uv run playwright install chromium`. Without it these tests skip.
-Set `SPACETAXI_SCREENSHOTS=1` to write the screenshots (tick 0, mid-round, end of round) to
-`tests/e2e/screenshots/` instead of a temp dir.
+Set `SPACETAXI_SCREENSHOTS=1` to write the screenshots (tick 0, mid-round, end of round, an
+explosion, a `+$` popup, the podium) to `tests/e2e/screenshots/` instead of a temp dir.
 """
 
 import os
@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from spacetaxi.cli import main
+from spacetaxi.show import load_replay
 from spacetaxi.viewer import build_html
 
 sync_api = pytest.importorskip("playwright.sync_api")
@@ -134,13 +135,6 @@ def test_speed_keys(viewer):
     assert 3.2 <= fast / slow <= 4.8
 
 
-def test_fps_at_4x_with_4_taxis(viewer):
-    viewer.keyboard.press("4")
-    viewer.keyboard.press("Space")
-    viewer.wait_for_timeout(1500)
-    assert state(viewer)["fps"] >= 50
-
-
 def test_scrub_and_round_selector(viewer, shots):
     scrub_to(viewer, 186)
     viewer.wait_for_timeout(200)
@@ -150,6 +144,104 @@ def test_scrub_and_round_selector(viewer, shots):
     viewer.wait_for_timeout(200)
     s = state(viewer)
     assert s["round"] == 2 and s["tick"] == 1
+
+
+FX_EVENTS = {"explosions": "crash", "dust": "landed", "pickups": "pickup", "cash": "deliver"}
+
+
+def round_one(replay):
+    rnd = load_replay(str(replay))[1]
+    return [rnd["ticks"][n] for n in sorted(rnd["ticks"])]
+
+
+def wait_for_round_end(page, timeout=60):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if page.evaluate("window.spacetaxi.tick === 375 && "
+                         "document.getElementById('play').textContent === 'PLAY'"):
+            return
+        page.wait_for_timeout(200)
+    raise AssertionError(f"round did not end, at tick {state(page)['tick']}")
+
+
+def test_effect_counters_follow_the_replay_events(viewer, replay, shots):
+    ticks = round_one(replay)
+    expected = {fx: sum(e["type"] == kind for t in ticks for e in t["events"])
+                for fx, kind in FX_EVENTS.items()}
+    thrust = any(m["ax"] or m["ay"] for t in ticks for m in t["moves"].values())
+    assert all(expected.values()) and thrust  # the canyon replay has every kind of effect
+    before = state(viewer)["fx"]
+    assert before["flames"] == 0  # paused: no flames yet
+    viewer.keyboard.press("4")
+    viewer.keyboard.press("Space")
+    wait_for_round_end(viewer)
+    s = state(viewer)
+    after = s["fx"]
+    assert {fx: after[fx] - before[fx] for fx in FX_EVENTS} == expected
+    assert after["flames"] > 0
+    assert after["shakes"] == expected["explosions"]
+    # the podium: the top 3 by money at the end of the round
+    last = {t["id"]: t["money"] for t in ticks[-1]["taxis"]}
+    players = load_replay(str(replay))[1]["start"]["players"]
+    top3 = sorted(players, key=lambda p: (-last[p], players.index(p)))[:3]
+    assert s["podium"] == top3
+    viewer.screenshot(path=str(shots / "podium.png"))
+
+
+def first_tick_with(page, kind):
+    return page.evaluate("""kind => JSON.parse(document.getElementById('replay').textContent)[0]
+        .ticks.findIndex(t => t.e.some(e => e.type === kind))""", kind)
+
+
+def play_into(page, kind, counter):
+    """Scrub to just before the first `kind` event, play at 1x until it fires."""
+    index = first_tick_with(page, kind)
+    assert index > 0
+    scrub_to(page, index - 1)
+    before = state(page)["fx"][counter]
+    page.keyboard.press("2")
+    page.keyboard.press("Space")
+    page.wait_for_function(f"window.spacetaxi.fx.{counter} > {before}", timeout=5000)
+
+
+def test_explosion_and_cash_popup(viewer, shots):
+    play_into(viewer, "crash", "explosions")
+    viewer.wait_for_timeout(60)
+    viewer.screenshot(path=str(shots / "explosion.png"))
+    viewer.keyboard.press("Space")
+    assert state(viewer)["fx"]["shakes"] >= 1
+    play_into(viewer, "deliver", "cash")
+    viewer.wait_for_timeout(250)
+    viewer.screenshot(path=str(shots / "cash.png"))
+
+
+def test_reduced_motion_turns_screen_shake_off(browser, page_file):
+    page = browser.new_page(viewport={"width": 1920, "height": 1080}, reduced_motion="reduce")
+    try:
+        page.goto(page_file.as_uri())
+        page.wait_for_function("window.spacetaxi && window.spacetaxi.fps > 0")
+        play_into(page, "crash", "explosions")
+        assert state(page)["fx"]["shakes"] == 0
+    finally:
+        page.close()
+
+
+def test_c_toggles_the_scanlines(viewer):
+    crt = viewer.locator("#crt")
+    assert state(viewer)["scanlines"] is True and crt.is_visible()
+    viewer.keyboard.press("c")
+    assert state(viewer)["scanlines"] is False and not crt.is_visible()
+    viewer.keyboard.press("C")
+    assert state(viewer)["scanlines"] is True and crt.is_visible()
+
+
+def test_fps_at_4x_with_4_taxis_and_all_effects(viewer):
+    viewer.keyboard.press("4")
+    viewer.keyboard.press("Space")
+    viewer.wait_for_timeout(3000)
+    s = state(viewer)
+    assert s["scanlines"] and s["fx"]["flames"] > 0
+    assert s["fps"] >= 50
 
 
 @pytest.fixture
