@@ -34,9 +34,28 @@ def test_replay_data_compacts_ticks():
     assert rnd["rules"]["tick_ms"] == Rules().tick_ms
     tick = rnd["ticks"][0]
     assert tick["t"] == 1
-    # [x, y, vx, state, carrying, money]
-    assert tick["x"][0] == [4, 2, 0, 1, 0, 10]
-    assert tick["x"][2][4] == 1
+    # [x, y, vx, state, carrying, money, to]; an old replay without fx/fy: the cell centre
+    assert tick["x"][0] == [4.5, 2.5, 0, 1, 0, 10, None]
+    assert tick["x"][2][4] == 1 and tick["x"][2][6] == "A"
+
+
+def test_replay_data_packs_fine_positions_and_destinations(tmp_path):
+    replay = tmp_path / "r.jsonl"
+    assert main(["run", "--map", "cavern", "--bots", "random,random", "--rounds", "1",
+                 "--seed", "1", "--replay", str(replay)]) == 0
+    lines = [json.loads(line) for line in replay.read_text().splitlines()]
+    raw = [m for m in lines if m["type"] == "tick"]
+    [rnd] = replay_data(str(replay))
+    upc = rnd["rules"]["units_per_cell"]
+    for msg, tick in zip(raw, rnd["ticks"], strict=True):
+        by_id = {t["id"]: t for t in msg["taxis"]}
+        for name, packed in zip(rnd["players"], tick["x"], strict=True):
+            t = by_id[name]
+            assert packed[:2] == [t["fx"] / upc, t["fy"] / upc]
+            assert packed[6] == (t["passenger"]["to"] if t["passenger"] else None)
+        assert tick["p"] == [[p["at"], p["spot_x"], p["to"], p["fare"]] for p in msg["passengers"]]
+    # off cell centres: the taxis fall between cells
+    assert any(x % 1 != 0.5 or y % 1 != 0.5 for t in rnd["ticks"] for x, y, *_ in t["x"])
 
 
 def test_replay_data_has_each_players_move(tmp_path):

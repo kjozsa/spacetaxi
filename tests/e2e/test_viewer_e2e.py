@@ -5,6 +5,7 @@ Set `SPACETAXI_SCREENSHOTS=1` to write the screenshots (tick 0, mid-round, end o
 explosion, a `+$` popup, the podium) to `tests/e2e/screenshots/` instead of a temp dir.
 """
 
+import json
 import os
 import re
 import socket
@@ -378,6 +379,103 @@ def test_d_toggles_the_debug_overlay(browser, debug_page_file, shots):
         page.wait_for_timeout(100)
         s = state(page)
         assert s["overlay"] is False and s["bubbles"] == ["", "", ""]
+    finally:
+        page.close()
+    assert errors == []
+
+
+@pytest.fixture(scope="module")
+def cavern_page_file(tmp_path_factory):
+    """Random bots on cavern fall and crash: free falls between cells. No bot carries a
+    passenger yet, so the replay is patched to give the first taxi one to the last pad
+    whenever it is not crashed."""
+    out = tmp_path_factory.mktemp("cavern")
+    replay = out / "r.jsonl"
+    assert main(["run", "--map", "cavern", "--bots", "random,random", "--rounds", "1",
+                 "--seed", "1", "--replay", str(replay)]) == 0
+    lines = [json.loads(line) for line in replay.read_text().splitlines()]
+    dest = next(m for m in lines if m["type"] == "round_start")["pads"][-1]["id"]
+    for msg in lines:
+        if msg["type"] == "tick":
+            first = msg["taxis"][0]
+            first["passenger"] = (None if first["state"] == "crashed"
+                                  else {"id": 99, "to": dest, "fare": 77})
+    replay.write_text("".join(json.dumps(m) + "\n" for m in lines))
+    assert main(["view", str(replay), "--out", str(out / "v.html")]) == 0
+    return out / "v.html"
+
+
+def embedded_round(page):
+    return page.evaluate("JSON.parse(document.getElementById('replay').textContent)[0]")
+
+
+def test_taxis_move_smoothly_between_ticks(browser, cavern_page_file):
+    page, errors = open_page(browser, cavern_page_file)
+    try:
+        insert_coin(page)
+        page.keyboard.press("2")
+        page.keyboard.press("Space")
+        frames = page.evaluate("""() => new Promise(done => {
+            const out = [], t0 = performance.now();
+            const grab = () => {
+                const s = window.spacetaxi;
+                out.push([s.tick, s.taxis.map(p => p && [p[0], p[1]])]);
+                if (performance.now() - t0 < 2000) requestAnimationFrame(grab); else done(out);
+            };
+            requestAnimationFrame(grab);
+        })""")
+        ticks = {t["t"]: t for t in embedded_round(page)["ticks"]}
+        seen = {}   # (tick, taxi) -> distinct drawn positions, while falling to the next tick
+        for tick, taxis in frames:
+            nxt = ticks.get(tick + 1)
+            for k, pos in enumerate(taxis):
+                a = ticks[tick]["x"][k]
+                if pos is None or nxt is None or a[3] != 0 or nxt["x"][k][1] <= a[1]:
+                    continue
+                seen.setdefault((tick, k), set()).add(tuple(pos))
+        assert seen and max(len(v) for v in seen.values()) > 2
+    finally:
+        page.close()
+    assert errors == []
+
+
+def test_destination_tags_and_pulsing_pad(browser, cavern_page_file, shots):
+    page, errors = open_page(browser, cavern_page_file)
+    try:
+        insert_coin(page)
+        rnd = embedded_round(page)
+        index = next(i for i, t in enumerate(rnd["ticks"])
+                     if t["p"] and t["x"][0][6] and t["x"][1][3] != 2)
+        tk = rnd["ticks"][index]
+        scrub_to(page, index)
+        page.wait_for_timeout(200)
+        s = state(page)
+        assert s["tick"] == tk["t"]
+        dest = tk["x"][0][6]
+        expected = [f"TO {to} ${fare}" for _, _, to, fare in tk["p"]] + [f"TO {dest}"]
+        assert sorted(s["tags"]) == sorted(expected)
+        assert s["pulsing"] == [dest]
+        page.screenshot(path=str(shots / "tags.png"))
+    finally:
+        page.close()
+    assert errors == []
+
+
+def test_old_replay_without_fine_positions(browser):
+    """stacked.jsonl predates fine positions: taxis sit at their cell centres. Map 7x5: cells of
+    177 px, the board at (340, 121)."""
+    out = Path(__file__).parent.parent / "fixtures" / "show" / "stacked.jsonl"
+    html = build_html(str(out))
+    page = browser.new_page(viewport={"width": 1920, "height": 1080})
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    try:
+        page.set_content(html)
+        page.wait_for_function("window.spacetaxi && window.spacetaxi.fps > 0")
+        s = state(page)
+        assert s["taxis"] == [[340 + 4.5 * 177, 121 + 2.5 * 177], [340 + 1.5 * 177, 121 + 2.5 * 177],
+                              [340 + 4.5 * 177, 121 + 2.5 * 177]]
+        assert s["tags"] == ["TO A"] and s["pulsing"] == ["A"]
     finally:
         page.close()
     assert errors == []
