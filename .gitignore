@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+.factory/
+
+# tracked in this repo despite global ignores
+!CLAUDE.md
+!docs/
