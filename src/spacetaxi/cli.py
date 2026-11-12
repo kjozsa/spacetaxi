@@ -1,12 +1,14 @@
-"""Command-line entry point. Subcommands: map, run (show is added by a later task)."""
+"""Command-line entry point. Subcommands: map, run, show."""
 
 import argparse
 import json
 import sys
+import time
 
 from spacetaxi import __version__
 from spacetaxi.maps import MapError, load_map
 from spacetaxi.runner import BotError, format_table, run
+from spacetaxi.show import ReplayError, frame, get_round, get_tick, load_replay, render
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -32,6 +34,15 @@ def build_parser() -> argparse.ArgumentParser:
     run_cmd.add_argument("--json", action="store_true", help="print results as JSON")
     run_cmd.add_argument("--replay", metavar="FILE", help="write every message as JSON lines")
     run_cmd.set_defaults(func=cmd_run)
+
+    show_cmd = commands.add_parser("show", help="print one tick of a replay as text")
+    show_cmd.add_argument("replay", help="a replay file written by run --replay")
+    show_cmd.add_argument("--round", type=int, default=1, help="round to show (default 1)")
+    show_cmd.add_argument("--tick", type=int, help="tick to show (required unless --watch)")
+    show_cmd.add_argument("--watch", action="store_true",
+                          help="animate the round from its first tick to its last")
+    show_cmd.add_argument("--fps", type=float, default=10, help="frames per second (default 10)")
+    show_cmd.set_defaults(func=cmd_show)
     return parser
 
 
@@ -71,6 +82,32 @@ def cmd_run(args: argparse.Namespace) -> int:
         print(json.dumps(results, indent=2))
     else:
         print(format_table(results))
+    return 0
+
+
+def cmd_show(args: argparse.Namespace) -> int:
+    try:
+        if not args.watch and args.tick is None:
+            raise ReplayError("give --tick N or --watch")
+        if args.fps <= 0:
+            raise ReplayError("--fps must be positive")
+        rnd = get_round(load_replay(args.replay), args.round)
+        if not args.watch:
+            print(render(rnd["start"], get_tick(rnd, args.tick)))
+            return 0
+        if not rnd["ticks"]:
+            raise ReplayError(f"round {args.round} has no ticks")
+    except ReplayError as exc:
+        print(f"spacetaxi show: error: {exc}", file=sys.stderr)
+        return 2
+    delay = 1 / args.fps
+    try:
+        for tick_no in sorted(rnd["ticks"]):
+            sys.stdout.write("\x1b[H\x1b[2J" + frame(rnd["start"], rnd["ticks"][tick_no]) + "\n")
+            sys.stdout.flush()
+            time.sleep(delay)
+    except KeyboardInterrupt:
+        print()
     return 0
 
 
