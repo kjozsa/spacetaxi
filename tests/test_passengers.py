@@ -41,8 +41,8 @@ def hover(w, i, pid, x=None):
     return t
 
 
-def add_passenger(w, at, to, spot_x=None, fare=70, appeared=None):
-    """A waiting passenger that spawned on tick `appeared` (by default the previous tick)."""
+def add_passenger(w, at, to, spot_x=None, fare=70):
+    """A waiting passenger, as if it spawned on an earlier tick."""
     p = Passenger(
         id=w.next_passenger_id,
         at=at,
@@ -50,7 +50,6 @@ def add_passenger(w, at, to, spot_x=None, fare=70, appeared=None):
         to=to,
         fare=fare,
         expires_in=w.rules.passenger_expires,
-        appeared=w.tick - 1 if appeared is None else appeared,
     )
     w.next_passenger_id += 1
     w.passengers.append(p)
@@ -61,10 +60,12 @@ def of_type(events, kind):
     return [e for e in events if e["type"] == kind]
 
 
-def expected_fare(w, at, to):
-    a, b = pad(w, at), pad(w, to)
-    distance = abs((a.x + a.len // 2) - (b.x + b.len // 2)) + abs(a.y - b.y)
-    return w.rules.fare_base + w.rules.fare_per_cell * distance
+# fare_base + fare_per_cell * Manhattan distance of the centres A (2,4), B (8,4), C (4,6)
+FARES = {
+    ("A", "B"): 50 + 2 * 6, ("B", "A"): 50 + 2 * 6,
+    ("A", "C"): 50 + 2 * (2 + 2), ("C", "A"): 50 + 2 * (2 + 2),
+    ("B", "C"): 50 + 2 * (4 + 2), ("C", "B"): 50 + 2 * (4 + 2),
+}
 
 
 # spawning
@@ -105,7 +106,6 @@ def test_spawned_passengers_have_valid_pads_spots_fares_and_expiry():
         w = world(seed=seed, passenger_spawn_every=1, passenger_expires=1000)
         park(w, 0, "A")
         for _ in range(3):
-            tick = w.tick
             events = w.step({})
             (spawn,) = of_type(events, "spawn")
             p = w.state()["passengers"][-1]
@@ -113,18 +113,10 @@ def test_spawned_passengers_have_valid_pads_spots_fares_and_expiry():
             assert p["at"] != p["to"]
             at = pad(w, p["at"])
             assert at.x <= p["spot_x"] < at.x + at.len
-            assert p["fare"] == expected_fare(w, p["at"], p["to"])
+            assert p["fare"] == FARES[(p["at"], p["to"])]
             assert p["expires_in"] == 1000
-            assert w.passengers[-1].appeared == tick
             seen_pairs.add((p["at"], p["to"]))
     assert len(seen_pairs) == 6  # every ordered pair of the 3 pads shows up
-
-
-def test_fare_formula_values():
-    w = world()
-    assert expected_fare(w, "A", "B") == 50 + 2 * 6
-    assert expected_fare(w, "A", "C") == 50 + 2 * (2 + 2)
-    assert expected_fare(w, "C", "B") == 50 + 2 * (4 + 2)
 
 
 def test_spawning_is_seeded():
@@ -211,14 +203,20 @@ def test_taxi_parked_when_the_passenger_appears_must_take_off_and_land_again():
 
 
 def test_taxi_landing_on_the_tick_the_passenger_appears_is_camping():
-    w = world()
-    hover(w, 0, "A")
-    p = add_passenger(w, "A", "B", appeared=w.tick)  # spawns in step 4 of this very tick
-    events = w.step({})
-    assert of_type(events, "landed") and not of_type(events, "pickup")
-    for _ in range(5):
-        assert not of_type(w.step({}), "pickup")
-    assert w.passengers == [p]
+    checked = 0
+    for seed in range(20):
+        w = world(seed=seed, passenger_spawn_every=1, passenger_expires=1000)
+        hover(w, 0, "A")
+        events = w.step({})  # tick 1: the taxi lands, then a passenger spawns
+        assert of_type(events, "landed") and of_type(events, "spawn")
+        (p,) = w.passengers
+        if p.at != "A":
+            continue
+        checked += 1
+        for _ in range(5):
+            assert not of_type(w.step({}), "pickup")
+        assert w.taxis[0].state == LANDED and p in w.passengers
+    assert checked > 0
 
 
 def test_camping_with_a_really_spawned_passenger():
@@ -326,7 +324,7 @@ def test_full_round_trip_with_spawned_passenger():
     hover(w, 0, p.to)
     (deliver,) = of_type(w.step({}), "deliver")
     assert deliver == {"type": "deliver", "taxi": "p", "passenger": p.id, "fare": p.fare}
-    assert w.taxis[0].money == expected_fare(w, p.at, p.to)
+    assert w.taxis[0].money == FARES[(p.at, p.to)]
 
 
 # crash
@@ -395,16 +393,18 @@ def test_carried_passenger_does_not_expire():
 # state shape
 
 
+def doc_json_blocks():
+    return re.findall(r"```json\n(.*?)```", RULES_DOC.read_text(), re.S)
+
+
 def doc_tick_message():
-    blocks = re.findall(r"```json\n(.*?)```", RULES_DOC.read_text(), re.S)
-    ticks = [json.loads(b) for b in blocks if '"type": "tick"' in b]
+    ticks = [json.loads(b) for b in doc_json_blocks() if '"type": "tick"' in b]
     assert len(ticks) == 1
     return ticks[0]
 
 
 def doc_event_shapes():
-    blocks = re.findall(r"```json\n(.*?)```", RULES_DOC.read_text(), re.S)
-    (shapes,) = [b for b in blocks if b.startswith('{"type": "landed"')]
+    (shapes,) = [b for b in doc_json_blocks() if b.startswith('{"type": "landed"')]
     return {(e := json.loads(line))["type"]: set(e) for line in shapes.splitlines()}
 
 

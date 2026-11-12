@@ -47,7 +47,6 @@ class Taxi:
     respawn_in: int = 0
     crashes: int = 0
     deliveries: int = 0
-    landed_on: int = 0  # the tick of the latest landing
 
     def to_dict(self) -> dict:
         return {
@@ -72,7 +71,6 @@ class Passenger:
     to: str
     fare: int
     expires_in: int
-    appeared: int = 0  # the tick the passenger spawned on
 
     def to_dict(self) -> dict:
         return {
@@ -166,14 +164,14 @@ class World:
                 taxi.state, taxi.pad, taxi.vx, taxi.vy = FLYING, None, 0, -1
 
         # 2. move
-        for taxi in self.taxis:
-            if taxi.state == FLYING:
-                self._move(taxi, events)
-        landed_now = [t for t in self.taxis if t.state == LANDED and t.landed_on == tick]
+        flying = [t for t in self.taxis if t.state == FLYING]
+        for taxi in flying:
+            self._move(taxi, events)
+        landed_now = [t for t in flying if t.state == LANDED]
 
         # 3. pickups and deliveries
         self._deliver(landed_now, events)
-        self._pick_up(landed_now, tick, events)
+        self._pick_up(landed_now, events)
 
         # 4.1 respawns
         for taxi in crashed_before:
@@ -195,7 +193,7 @@ class World:
             tick % self.rules.passenger_spawn_every == 0
             and len(self.passengers) < len(self.taxis) + 2
         ):
-            p = self._spawn_passenger(tick)
+            p = self._spawn_passenger()
             events.append({"type": "spawn", "passenger": p.id, "at": p.at, "to": p.to})
 
         self.tick += 1
@@ -214,7 +212,6 @@ class World:
                     self._crash(taxi, "wall", events)
                 elif taxi.vx == 0 and taxi.vy <= self.rules.safe_landing_vy:
                     taxi.state, taxi.pad, taxi.vx, taxi.vy = LANDED, cell, 0, 0
-                    taxi.landed_on = self.tick
                     events.append({"type": "landed", "taxi": taxi.id, "pad": cell})
                 else:
                     self._crash(taxi, "hard_landing", events)
@@ -232,10 +229,10 @@ class World:
                     {"type": "deliver", "taxi": taxi.id, "passenger": p["id"], "fare": p["fare"]}
                 )
 
-    def _pick_up(self, landed: list[Taxi], tick: int, events: list[dict]) -> None:
-        for p in sorted(self.passengers, key=lambda p: p.id):
-            if p.appeared >= tick:
-                continue
+    def _pick_up(self, landed: list[Taxi], events: list[dict]) -> None:
+        # Only taxis that touched down this tick are candidates, and every waiting passenger
+        # spawned on an earlier tick (spawns come after this step), so campers never board.
+        for p in list(self.passengers):
             candidates = [t for t in landed if t.passenger is None and t.pad == p.at]
             if not candidates:
                 continue
@@ -246,7 +243,7 @@ class World:
             self.passengers.remove(p)
             events.append({"type": "pickup", "taxi": taxi.id, "passenger": p.id})
 
-    def _spawn_passenger(self, tick: int) -> Passenger:
+    def _spawn_passenger(self) -> Passenger:
         pads = self.map.pads
         at = self.rng.choice(pads)
         spot_x = self.rng.randrange(at.x, at.x + at.len)
@@ -259,7 +256,6 @@ class World:
             to=to.id,
             fare=self.rules.fare_base + self.rules.fare_per_cell * distance,
             expires_in=self.rules.passenger_expires,
-            appeared=tick,
         )
         self.next_passenger_id += 1
         self.passengers.append(p)
