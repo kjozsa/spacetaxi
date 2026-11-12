@@ -1,13 +1,14 @@
-"""Command-line entry point. Subcommands: map, run, show."""
+"""Command-line entry point. Subcommands: map, run, show, new-bot."""
 
 import argparse
 import json
 import sys
 import time
+from pathlib import Path
 
 from spacetaxi import __version__
 from spacetaxi.maps import MapError, load_map
-from spacetaxi.runner import BotError, format_table, run
+from spacetaxi.runner import BOTS_DIR, BotError, format_table, run
 from spacetaxi.sim import Rules
 from spacetaxi.show import ReplayError, frame, get_round, get_tick, load_replay, render
 
@@ -28,7 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_cmd.add_argument("--map", default="classic", help="bundled map name or map file path")
     run_cmd.add_argument(
         "--bots", required=True,
-        help="comma-separated bots: bundled names (idle, random, lander) or .py file paths",
+        help="comma-separated bots: bundled names (idle, random, greedy, lander) or .py file paths",
     )
     run_cmd.add_argument("--rounds", type=int, default=10, help="rounds to play (default 10)")
     run_cmd.add_argument("--seed", type=int, default=0, help="seed for every round (default 0)")
@@ -48,6 +49,10 @@ def build_parser() -> argparse.ArgumentParser:
                           help="animate the round from its first tick to its last")
     show_cmd.add_argument("--fps", type=float, default=10, help="frames per second (default 10)")
     show_cmd.set_defaults(func=cmd_show)
+
+    new_bot_cmd = commands.add_parser("new-bot", help="write a starter bot (a copy of greedy)")
+    new_bot_cmd.add_argument("path", help="the .py file to create; never overwritten")
+    new_bot_cmd.set_defaults(func=cmd_new_bot)
     return parser
 
 
@@ -141,6 +146,48 @@ def cmd_show(args: argparse.Namespace) -> int:
             time.sleep(delay)
     except KeyboardInterrupt:
         print()
+    return 0
+
+
+NEW_BOT_HEADER = """\
+# A spacetaxi bot, started as a copy of the bundled `greedy` house bot. Make it better!
+#
+# The bot interface: a bot is a Python module with
+#   move(state) -> {"ax": -1|0|1, "ay": -1|0|1}   called every tick, `state` is the `tick`
+#                                                  message: taxis, waiting passengers, events
+# and two optional hooks:
+#   welcome(info)  once, with the `welcome` message: your taxi id and the rules
+#   start(info)    every round, with the `round_start` message: map rows, pads, spawns, rules
+# The shape of every message, the physics and the scoring are in docs/rules.md.
+#
+# Evaluate it against the house bots (100 rounds, results as JSON):
+#   spacetaxi run --bots ./mybot.py,lander --rounds 100 --json
+# Add --map canyon for the harder map, --seed N for other rounds.
+#
+# Watch a round: record a replay, then play it back in the terminal (or show one tick):
+#   spacetaxi run --bots ./mybot.py,lander --rounds 1 --replay replay.jsonl
+#   spacetaxi show replay.jsonl --watch
+#   spacetaxi show replay.jsonl --tick 100
+# The `debug` text a move returns is free text for you; the simulation ignores it.
+
+"""
+
+
+def cmd_new_bot(args: argparse.Namespace) -> int:
+    path = Path(args.path)
+    source = (BOTS_DIR / "greedy.py").read_text(encoding="utf-8")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "x", encoding="utf-8") as out:
+            out.write(NEW_BOT_HEADER + source)
+    except FileExistsError:
+        print(f"spacetaxi new-bot: error: {path} already exists, not overwriting it",
+              file=sys.stderr)
+        return 2
+    except OSError as exc:
+        print(f"spacetaxi new-bot: error: {exc}", file=sys.stderr)
+        return 2
+    print(f"wrote {path}")
     return 0
 
 

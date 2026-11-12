@@ -26,5 +26,15 @@ uv run pytest
 uv run spacetaxi --help
 ```
 
-`spacetaxi` is the command-line entry point. Its subcommands (`map`, `run`, `show`) are added as
-the game grows; `spacetaxi <command> --help` describes each one.
+`spacetaxi` is the command-line entry point. Its subcommands (`map`, `run`, `show`, `new-bot`)
+are added as the game grows; `spacetaxi <command> --help` describes each one.
+
+## Write a bot
+
+```sh
+uv run spacetaxi new-bot mybot.py
+uv run spacetaxi run --bots ./mybot.py,lander --rounds 100 --json
+```
+
+`new-bot` writes a copy of the `greedy` house bot with a header that explains the bot interface,
+how to evaluate it and how to watch a replay.
