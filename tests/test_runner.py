@@ -4,6 +4,7 @@ import time
 from spacetaxi.cli import main
 from spacetaxi.maps import load_map
 from spacetaxi.runner import player_ids, run
+from spacetaxi.sim import Rules
 
 KEYS = {"name", "rounds", "avg_money", "avg_deliveries", "crashes", "errors", "timeouts"}
 CMD = ["run", "--map", "classic", "--bots", "random,random,idle,idle", "--rounds", "100",
@@ -101,7 +102,8 @@ def test_replay_line_shapes(tmp_path, capsys):
     for r in range(2):
         chunk = lines[r * per_round:(r + 1) * per_round]
         start, ticks, end = chunk[0], chunk[1:-1], chunk[-1]
-        assert set(start) == {"type", "round", "map", "pads", "spawns", "players"}
+        assert set(start) == {"type", "round", "map", "pads", "spawns", "players", "rules"}
+        assert start["rules"] == Rules().to_dict()
         assert start["type"] == "round_start" and start["round"] == r + 1
         assert start["players"] == ["random", "idle"]
         assert set(start["pads"][0]) == {"id", "x", "y", "len"}
@@ -122,3 +124,68 @@ def test_replay_line_shapes(tmp_path, capsys):
         assert set(end) == {"type", "round", "results"}
         for res in end["results"]:
             assert set(res) == {"id", "money", "deliveries", "crashes"}
+
+
+RULE_CMD = ["run", "--map", "classic", "--bots", "lander,random", "--rounds", "20", "--seed", "1",
+            "--json"]
+OVERRIDES = ["--rule", "max_speed=4", "--rule", "crash_cost=50"]
+
+
+def test_rule_overrides_change_results(capsys):
+    assert main(RULE_CMD) == 0
+    plain = capsys.readouterr().out
+    assert main(RULE_CMD + OVERRIDES) == 0
+    assert capsys.readouterr().out != plain
+
+
+def test_replay_records_overridden_rules(tmp_path, capsys):
+    out = tmp_path / "out.jsonl"
+    assert main(["run", "--bots", "idle", "--rounds", "2", "--replay", str(out)] + OVERRIDES) == 0
+    starts = [m for m in map(json.loads, out.read_text().splitlines())
+              if m["type"] == "round_start"]
+    assert len(starts) == 2
+    expected = Rules(max_speed=4, crash_cost=50).to_dict()
+    for start in starts:
+        assert start["rules"] == expected
+
+
+def test_bots_receive_overridden_rules(tmp_path, capsys):
+    log = tmp_path / "seen.jsonl"
+    spy = tmp_path / "spy.py"
+    spy.write_text(
+        "import json\n"
+        f"LOG = {str(log)!r}\n"
+        "def _write(info):\n"
+        "    with open(LOG, 'a') as f:\n"
+        "        f.write(json.dumps(info) + '\\n')\n"
+        "welcome = start = _write\n"
+        "def move(state):\n"
+        "    return {'ax': 0, 'ay': 0}\n"
+    )
+    assert main(["run", "--bots", str(spy), "--rounds", "1", "--rule", "round_ticks=5",
+                 "--rule", "max_speed=4"]) == 0
+    welcome, start = map(json.loads, log.read_text().splitlines())
+    expected = Rules(round_ticks=5, max_speed=4).to_dict()
+    assert welcome["type"] == "welcome" and welcome["rules"] == expected
+    assert start["type"] == "round_start" and start["rules"] == expected
+
+
+def test_unknown_rule_key_exits_2(capsys):
+    assert main(["run", "--bots", "idle", "--rounds", "1", "--rule", "warp=9"]) == 2
+    err = capsys.readouterr().err
+    assert "warp" in err
+    for key in Rules().to_dict():
+        assert key in err
+
+
+def test_non_integer_rule_value_exits_2(capsys):
+    assert main(["run", "--bots", "idle", "--rounds", "1", "--rule", "max_speed=fast"]) == 2
+    err = capsys.readouterr().err
+    assert "max_speed" in err and "fast" in err
+    for key in Rules().to_dict():
+        assert key in err
+
+
+def test_rule_without_equals_exits_2(capsys):
+    assert main(["run", "--bots", "idle", "--rounds", "1", "--rule", "max_speed"]) == 2
+    assert "max_speed" in capsys.readouterr().err

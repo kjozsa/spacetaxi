@@ -8,6 +8,7 @@ import time
 from spacetaxi import __version__
 from spacetaxi.maps import MapError, load_map
 from spacetaxi.runner import BotError, format_table, run
+from spacetaxi.sim import Rules
 from spacetaxi.show import ReplayError, frame, get_round, get_tick, load_replay, render
 
 
@@ -33,6 +34,10 @@ def build_parser() -> argparse.ArgumentParser:
     run_cmd.add_argument("--seed", type=int, default=0, help="seed for every round (default 0)")
     run_cmd.add_argument("--json", action="store_true", help="print results as JSON")
     run_cmd.add_argument("--replay", metavar="FILE", help="write every message as JSON lines")
+    run_cmd.add_argument(
+        "--rule", action="append", default=[], metavar="KEY=VALUE",
+        help="override one rule constant with an integer, e.g. max_speed=4 (repeatable)",
+    )
     run_cmd.set_defaults(func=cmd_run)
 
     show_cmd = commands.add_parser("show", help="print one tick of a replay as text")
@@ -60,6 +65,28 @@ def cmd_map(args: argparse.Namespace) -> int:
     return 0
 
 
+class RuleError(ValueError):
+    """A `--rule` override with an unknown key or a non-integer value."""
+
+
+def parse_rules(overrides: list[str]) -> Rules:
+    """`Rules` with each `key=value` override applied; values must be integers."""
+    valid = list(Rules().to_dict())
+    values = {}
+    for item in overrides:
+        key, sep, value = item.partition("=")
+        key = key.strip()
+        if not sep or key not in valid:
+            raise RuleError(f"unknown rule {key!r} in --rule {item!r}; "
+                            f"valid keys: {', '.join(valid)}")
+        try:
+            values[key] = int(value.strip())
+        except ValueError:
+            raise RuleError(f"rule {key!r} needs an integer, got {value!r}; "
+                            f"valid keys: {', '.join(valid)}") from None
+    return Rules(**values)
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     bots = [b.strip() for b in args.bots.split(",") if b.strip()]
     if not bots:
@@ -69,12 +96,18 @@ def cmd_run(args: argparse.Namespace) -> int:
         print("spacetaxi run: error: --rounds must be at least 1", file=sys.stderr)
         return 2
     try:
+        rules = parse_rules(args.rule)
+    except RuleError as exc:
+        print(f"spacetaxi run: error: {exc}", file=sys.stderr)
+        return 2
+    try:
         game_map = load_map(args.map)
         if args.replay:
             with open(args.replay, "w", encoding="utf-8") as replay:
-                results = run(game_map, bots, args.rounds, args.seed, replay=replay)
+                results = run(game_map, bots, args.rounds, args.seed, rules=rules,
+                              replay=replay)
         else:
-            results = run(game_map, bots, args.rounds, args.seed)
+            results = run(game_map, bots, args.rounds, args.seed, rules=rules)
     except (MapError, BotError, OSError) as exc:
         print(f"spacetaxi run: error: {exc}", file=sys.stderr)
         return 2
