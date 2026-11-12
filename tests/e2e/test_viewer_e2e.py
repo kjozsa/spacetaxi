@@ -306,6 +306,58 @@ def test_m_toggles_mute(viewer):
     assert state(viewer)["muted"] is False
 
 
+def sound_button(page):
+    btn = page.locator("#bar #sound")
+    return btn.inner_text(), btn.get_attribute("aria-pressed"), state(page)["muted"]
+
+
+def test_sound_button_starts_on_after_the_4x_button(viewer, shots):
+    assert viewer.evaluate("document.querySelector('[data-speed=\"4\"]').nextElementSibling.id") \
+        == "sound"
+    assert sound_button(viewer) == ("SOUND ON", "true", False)
+    assert "key M" in viewer.locator("#sound").get_attribute("title")
+    viewer.locator("#bar").screenshot(path=str(shots / "bar.png"))
+
+
+def test_sound_button_toggles_mute(viewer):
+    viewer.click("#sound")
+    assert sound_button(viewer) == ("SOUND OFF", "false", True)
+    play_into(viewer, "crash", "explosions")  # muted sounds still count
+    assert state(viewer)["sfx"]["boom"] >= 1
+    viewer.click("#sound")
+    assert sound_button(viewer) == ("SOUND ON", "true", False)
+
+
+def test_sound_button_follows_the_m_key(viewer):
+    viewer.keyboard.press("m")
+    assert sound_button(viewer) == ("SOUND OFF", "false", True)
+    viewer.click("#sound")
+    assert sound_button(viewer) == ("SOUND ON", "true", False)
+    viewer.click("#sound")
+    assert sound_button(viewer) == ("SOUND OFF", "false", True)
+    viewer.keyboard.press("M")
+    assert sound_button(viewer) == ("SOUND ON", "true", False)
+
+
+def test_space_after_the_sound_button_plays_and_pauses(viewer):
+    viewer.click("#sound")
+    assert sound_button(viewer) == ("SOUND OFF", "false", True)
+    assert viewer.locator("#play").inner_text() == "PLAY"
+    viewer.keyboard.press("Space")
+    assert viewer.locator("#play").inner_text() == "PAUSE"
+    assert sound_button(viewer) == ("SOUND OFF", "false", True)
+    viewer.keyboard.press("Space")
+    assert viewer.locator("#play").inner_text() == "PLAY"
+    assert state(viewer)["muted"] is True
+
+
+def test_fresh_page_starts_with_sound_on(splash_page):
+    assert state(splash_page)["muted"] is False
+    splash_page.click("#splash")
+    splash_page.wait_for_function("window.spacetaxi.started")
+    assert sound_button(splash_page) == ("SOUND ON", "true", False)
+
+
 def test_c_toggles_the_scanlines(viewer):
     crt = viewer.locator("#crt")
     assert state(viewer)["scanlines"] is True and crt.is_visible()

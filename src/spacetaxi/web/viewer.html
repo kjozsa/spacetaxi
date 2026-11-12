@@ -75,7 +75,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color:
   <button id="splash" aria-label="Insert coin: click to start">
     <span class="title">SPACETAXI</span>
     <span class="coin">INSERT COIN &mdash; CLICK TO START</span>
-    <span class="hint">SPACE PLAY/PAUSE &middot; 1-4 SPEED &middot; C SCREEN &middot; M MUTE &middot; D DEBUG</span>
+    <span class="hint">SPACE PLAY/PAUSE &middot; 1-4 SPEED &middot; C SCREEN &middot; M OR SOUND BUTTON MUTE &middot; D DEBUG</span>
   </button>
   <div id="bar" role="group" aria-label="Playback">
     <button id="play" title="play / pause (space)">PLAY</button>
@@ -83,6 +83,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color:
     <button data-speed="1" title="key 2">1&times;</button>
     <button data-speed="2" title="key 3">2&times;</button>
     <button data-speed="4" title="key 4">4&times;</button>
+    <button id="sound" title="sound on / off (key M)" aria-pressed="true">SOUND ON</button>
     <input id="scrub" type="range" min="0" max="0" step="1" value="0" aria-label="Tick">
     <select id="round" aria-label="Round"></select>
     <span id="tickLabel">TICK 0</span>
