@@ -340,3 +340,39 @@ def test_view_serves_the_same_page(replay, free_port):
     finally:
         proc.terminate()
         proc.wait(timeout=10)
+
+
+FIXTURE_BOTS = Path(__file__).parent.parent / "fixtures" / "bots"
+
+
+@pytest.fixture(scope="module")
+def debug_page_file(tmp_path_factory):
+    """A replay of a bot with an object `debug` (planner), one with a text `debug` (talker) and
+    one without (idle). Seed 6 spawns the three taxis apart."""
+    out = tmp_path_factory.mktemp("debug")
+    bots = f"{FIXTURE_BOTS / 'planner.py'},{FIXTURE_BOTS / 'talker.py'},idle"
+    assert main(["run", "--map", "classic", "--bots", bots, "--rounds", "1", "--seed", "6",
+                 "--rule", "round_ticks=20", "--replay", str(out / "r.jsonl")]) == 0
+    assert main(["view", str(out / "r.jsonl"), "--out", str(out / "v.html")]) == 0
+    return out / "v.html"
+
+
+def test_d_toggles_the_debug_overlay(browser, debug_page_file, shots):
+    page, errors = open_page(browser, debug_page_file)
+    try:
+        insert_coin(page)
+        s = state(page)
+        assert s["overlay"] is False and s["bubbles"] == ["", "", ""]
+        page.keyboard.press("d")
+        page.wait_for_timeout(100)
+        s = state(page)
+        assert s["overlay"] is True
+        assert s["bubbles"] == ["hi", "just text", ""]
+        page.screenshot(path=str(shots / "debug.png"))
+        page.keyboard.press("D")
+        page.wait_for_timeout(100)
+        s = state(page)
+        assert s["overlay"] is False and s["bubbles"] == ["", "", ""]
+    finally:
+        page.close()
+    assert errors == []

@@ -282,7 +282,8 @@ field that bots never receive:
 
 - `moves`: the move applied to each taxi in this tick, keyed by taxi id:
   `{"ax", "ay", "coast", "debug"?}`. `coast` is `true` when the bot's answer was missing, late
-  or invalid; the move then counts as `0,0`. `debug` is the answer's debug text, when it has one.
+  or invalid; the move then counts as `0,0`. `debug` is the answer's `debug`, when it has a
+  valid one (see `move`).
 
 ```json
 "moves": {
@@ -308,12 +309,19 @@ Event shapes:
 
 ### `move`
 
-The bot's answer to a `tick`. `debug` is optional free text for viewers and logs; the
-simulation ignores it.
+The bot's answer to a `tick`. `debug` is optional, for viewers and logs; the simulation
+ignores it. It is either free text, or an object with an optional `say` (free text) and an
+optional `path` (a list of `[x, y]` integer cells, e.g. the planned route). Other keys of the
+object, a `say` that is not text and a `path` that is not such a list are dropped; any other
+`debug` is dropped whole.
 
 ```json
 {"type": "move", "ax": 0, "ay": -1, "debug": "climbing to cruise height"}
+{"type": "move", "ax": 1, "ay": 0, "debug": {"say": "to pad B", "path": [[5, 5], [6, 5]]}}
 ```
+
+The web viewer (`spacetaxi view`) shows each taxi's `debug` above it when key `D` is on: the
+text, or the object's `say`, and its `path` as a dotted line in the taxi's colour.
 
 ### `round_end`
 

@@ -241,3 +241,24 @@ def test_bots_never_see_moves(tmp_path):
         assert "moves" not in keys.split(",")
     assert all("moves" in json.loads(line) for line in out.read_text().splitlines()
                if json.loads(line)["type"] == "tick")
+
+
+def test_replay_keeps_object_debug(tmp_path):
+    bot = tmp_path / "planner.py"
+    bot.write_text(
+        "def move(state):\n"
+        "    t = state['tick']\n"
+        "    if t == 1:\n"
+        "        return {'ax': 0, 'ay': 0, 'debug': {'say': 'hi', 'path': [[5, 5], (6, 5)], 'x': 1}}\n"
+        "    if t == 2:\n"
+        "        return {'ax': 0, 'ay': 0, 'debug': {'say': 3, 'path': [[1, True]]}}\n"
+        "    return {'ax': 0, 'ay': 0, 'debug': 42}\n"
+    )
+    out = tmp_path / "out.jsonl"
+    with out.open("w") as f:
+        run(load_map("classic"), [str(bot)], rounds=1, rules=Rules(round_ticks=3), replay=f)
+    moves = [m["moves"]["planner"] for m in map(json.loads, out.read_text().splitlines())
+             if m["type"] == "tick"]
+    assert moves[0]["debug"] == {"say": "hi", "path": [[5, 5], [6, 5]]}
+    assert moves[1]["debug"] == {}
+    assert "debug" not in moves[2]
