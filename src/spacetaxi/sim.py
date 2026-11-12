@@ -46,6 +46,7 @@ class Taxi:
     money: int = 0
     respawn_in: int = 0
     crashes: int = 0
+    deliveries: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -59,6 +60,26 @@ class Taxi:
             "passenger": dict(self.passenger) if self.passenger else None,
             "money": self.money,
             "respawn_in": self.respawn_in,
+        }
+
+
+@dataclass
+class Passenger:
+    id: int
+    at: str
+    spot_x: int
+    to: str
+    fare: int
+    expires_in: int
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "at": self.at,
+            "spot_x": self.spot_x,
+            "to": self.to,
+            "fare": self.fare,
+            "expires_in": self.expires_in,
         }
 
 
@@ -102,6 +123,8 @@ class World:
         self.tick = 1
         self.events: list[dict] = []
         self.taxis = [Taxi(pid, *self._random_spawn()) for pid in players]
+        self.passengers: list[Passenger] = []  # waiting passengers, oldest first
+        self.next_passenger_id = 1
 
     def _random_spawn(self) -> tuple[int, int]:
         return self.rng.choice(self.map.spawns)
@@ -115,7 +138,7 @@ class World:
             "type": "tick",
             "tick": self.tick,
             "taxis": [t.to_dict() for t in self.taxis],
-            "passengers": [],
+            "passengers": [p.to_dict() for p in self.passengers],
             "events": [dict(e) for e in self.events],
         }
 
@@ -141,9 +164,14 @@ class World:
                 taxi.state, taxi.pad, taxi.vx, taxi.vy = FLYING, None, 0, -1
 
         # 2. move
-        for taxi in self.taxis:
-            if taxi.state == FLYING:
-                self._move(taxi, events)
+        flying = [t for t in self.taxis if t.state == FLYING]
+        for taxi in flying:
+            self._move(taxi, events)
+        landed_now = [t for t in flying if t.state == LANDED]
+
+        # 3. pickups and deliveries
+        self._deliver(landed_now, events)
+        self._pick_up(landed_now, events)
 
         # 4.1 respawns
         for taxi in crashed_before:
@@ -152,6 +180,21 @@ class World:
                 taxi.x, taxi.y = self._random_spawn()
                 taxi.state, taxi.vx, taxi.vy, taxi.respawn_in = FLYING, 0, 0, 0
                 events.append({"type": "respawn", "taxi": taxi.id, "x": taxi.x, "y": taxi.y})
+
+        # 4.2 expiry
+        for p in list(self.passengers):
+            p.expires_in -= 1
+            if p.expires_in <= 0:
+                self.passengers.remove(p)
+                events.append({"type": "expired", "passenger": p.id})
+
+        # 4.3 spawn
+        if (
+            tick % self.rules.passenger_spawn_every == 0
+            and len(self.passengers) < len(self.taxis) + 2
+        ):
+            p = self._spawn_passenger()
+            events.append({"type": "spawn", "passenger": p.id, "at": p.at, "to": p.to})
 
         self.tick += 1
         self.events = events
@@ -174,6 +217,49 @@ class World:
                     self._crash(taxi, "hard_landing", events)
                 return
             taxi.x, taxi.y = nx, ny
+
+    def _deliver(self, landed: list[Taxi], events: list[dict]) -> None:
+        for taxi in landed:
+            p = taxi.passenger
+            if p is not None and p["to"] == taxi.pad:
+                taxi.money += p["fare"]
+                taxi.passenger = None
+                taxi.deliveries += 1
+                events.append(
+                    {"type": "deliver", "taxi": taxi.id, "passenger": p["id"], "fare": p["fare"]}
+                )
+
+    def _pick_up(self, landed: list[Taxi], events: list[dict]) -> None:
+        # Only taxis that touched down this tick are candidates, and every waiting passenger
+        # spawned on an earlier tick (spawns come after this step), so campers never board.
+        for p in list(self.passengers):
+            candidates = [t for t in landed if t.passenger is None and t.pad == p.at]
+            if not candidates:
+                continue
+            best = min(abs(t.x - p.spot_x) for t in candidates)
+            closest = [t for t in candidates if abs(t.x - p.spot_x) == best]
+            taxi = closest[0] if len(closest) == 1 else self.rng.choice(closest)
+            taxi.passenger = {"id": p.id, "to": p.to, "fare": p.fare}
+            self.passengers.remove(p)
+            events.append({"type": "pickup", "taxi": taxi.id, "passenger": p.id})
+
+    def _spawn_passenger(self) -> Passenger:
+        pads = self.map.pads
+        at = self.rng.choice(pads)
+        spot_x = self.rng.randrange(at.x, at.x + at.len)
+        to = self.rng.choice([pad for pad in pads if pad.id != at.id])
+        distance = abs((at.x + at.len // 2) - (to.x + to.len // 2)) + abs(at.y - to.y)
+        p = Passenger(
+            id=self.next_passenger_id,
+            at=at.id,
+            spot_x=spot_x,
+            to=to.id,
+            fare=self.rules.fare_base + self.rules.fare_per_cell * distance,
+            expires_in=self.rules.passenger_expires,
+        )
+        self.next_passenger_id += 1
+        self.passengers.append(p)
+        return p
 
     def _crash(self, taxi: Taxi, cause: str, events: list[dict]) -> None:
         taxi.money -= self.rules.crash_cost
