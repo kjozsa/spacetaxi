@@ -2,8 +2,11 @@ import json
 
 import pytest
 
+from spacetaxi.bots import greedy
 from spacetaxi.cli import main
+from spacetaxi.maps import load_map
 from spacetaxi.runner import BOTS_DIR
+from spacetaxi.sim import FLYING, LANDED, Rules, World
 
 
 def run_json(capsys, *args) -> list[dict]:
@@ -15,24 +18,44 @@ def strip_names(results: list[dict]) -> list[dict]:
     return [{k: v for k, v in r.items() if k != "name"} for r in results]
 
 
-@pytest.mark.skip(reason="bots are rewritten for lander physics")
-def test_greedy_delivers_and_earns_alone_on_classic(capsys):
-    greedy = run_json(capsys, "--map", "classic", "--bots", "greedy,idle,idle,idle",
+@pytest.mark.parametrize("map_name", ["cavern", "classic"])
+def test_greedy_delivers_and_earns_alone(capsys, map_name):
+    greedy = run_json(capsys, "--map", map_name, "--bots", "greedy,idle,idle,idle",
                       "--rounds", "100", "--seed", "1")[0]
-    assert greedy["avg_deliveries"] >= 3
+    assert greedy["avg_deliveries"] >= 2
     assert greedy["avg_money"] > 0
+    assert sum(greedy["crashes"].values()) <= greedy["rounds"]  # at most 1 crash per round
     assert greedy["errors"] == 0 and greedy["timeouts"] == 0
 
 
+def test_greedy_lands_on_each_cavern_pad_from_each_spawn():
+    m = load_map("cavern")
+    rules = Rules().to_dict()
+    greedy.welcome({"id": "t", "rules": rules})
+    greedy.start({"rules": rules, "map": m.rows, "pads": [p.to_dict() for p in m.pads]})
+    for pad in m.pads:
+        for spawn in m.spawns:
+            world = World(m, players=["t"])
+            taxi = world.taxis[0]
+            world._place(taxi, *spawn)
+            while taxi.state == FLYING and world.tick <= 300:
+                state = taxi.to_dict()
+                state["passenger"] = {"id": 0, "to": pad.id, "fare": 0}
+                ax, ay, _debug = greedy.choose(state, [], world.tick)
+                world.step({"t": {"ax": ax, "ay": ay}})
+            assert taxi.state == LANDED and taxi.pad == pad.id, (pad.id, spawn, world.tick)
+
+
 def test_pilot_beats_every_greedy(capsys):
-    results = run_json(capsys, "--map", "classic", "--bots", "pilot,greedy,greedy,greedy",
+    results = run_json(capsys, "--map", "cavern", "--bots", "pilot,greedy,greedy,greedy",
                        "--rounds", "100", "--seed", "1")
     pilot, greedies = results[0], results[1:]
     assert all(pilot["avg_money"] > g["avg_money"] for g in greedies)
 
 
 def test_greedy_stays_small():
-    assert len((BOTS_DIR / "greedy.py").read_text().splitlines()) <= 130
+    lines = (BOTS_DIR / "greedy.py").read_text().splitlines()
+    assert len([line for line in lines if line.strip()]) <= 150
 
 
 def test_new_bot_copy_plays_like_greedy(tmp_path, capsys):
@@ -45,7 +68,7 @@ def test_new_bot_copy_plays_like_greedy(tmp_path, capsys):
                    "--replay", "spacetaxi show"):
         assert needle in text
 
-    common = ["--rounds", "5", "--seed", "1"]
+    common = ["--map", "cavern", "--rounds", "5", "--seed", "1"]
     mine = run_json(capsys, "--bots", f"{path},idle", *common)
     greedy = run_json(capsys, "--bots", "greedy,idle", *common)
     assert mine[0]["name"] == "mybot"

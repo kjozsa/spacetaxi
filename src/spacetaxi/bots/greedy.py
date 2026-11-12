@@ -1,15 +1,23 @@
-"""The "simple" house bot: no search, just a few straight lines.
+"""The "simple" house bot: no search, a few straight lines, flown slowly.
 
 Target: the passenger's destination when carrying one, otherwise the nearest waiting passenger
 by Manhattan distance (whatever they pay and wherever they go: deliberately weak).
 
-Flight: climb (or sink) to a cruising row from which the target is reachable in straight lines,
-fly across to the column above the target, then descend over the pad slowly enough to land.
+Flight, one function per step, all positions in units (see docs/rules.md): `take_off`; `climb`
+(or sink) straight to a cruising height from which the pad is reachable in straight lines;
+`cross` at that height with the side jets, braking early; `descend` once over the pad, slower
+than `safe_landing_vy`. With no such route from here, it first goes sideways (`detour`).
 """
+
+from math import isqrt
+
+CRUISE_SPEED = 8  # top speed we fly at, in units per tick, across and up or down
+MARGIN = 6        # units of air we keep around the taxi's box on the planned route
 
 _me = None      # our taxi id, from `welcome`
 _rules = {}     # the rule constants, from `welcome` (and again from `round_start`)
-_rows = []      # the map rows, from `round_start`
+_width = 0      # the map's width in cells, from `round_start`
+_air = set()    # the (x, y) cells of the map that are air
 _pads = {}      # pad id -> {"id", "x", "y", "len"}
 
 
@@ -20,105 +28,143 @@ def welcome(info: dict) -> None:
 
 
 def start(info: dict) -> None:
-    global _rules, _rows, _pads
+    global _rules, _width, _air, _pads
     _rules = info["rules"]
-    _rows = info["map"]
+    _width = len(info["map"][0])
+    _air = {(x, y) for y, row in enumerate(info["map"]) for x, ch in enumerate(row) if ch in ".S"}
     _pads = {p["id"]: p for p in info["pads"]}
 
 
-def is_air(x: int, y: int) -> bool:
-    return _rows[y][x] in ".S"
+def clear(x1: int, x2: int, y1: int, y2: int, margin: int = MARGIN) -> bool:
+    """True if the taxi's box, plus `margin`, touches only air while its centre stays between
+    `x1` and `x2` across and `y1` and `y2` down."""
+    u, w, h = _rules["units_per_cell"], _rules["taxi_half_width"], _rules["taxi_half_height"]
+    left, right = (min(x1, x2) - w - margin) // u, (max(x1, x2) + w + margin) // u
+    top, bottom = (min(y1, y2) - h - margin) // u, (max(y1, y2) + h + margin) // u
+    return all((x, y) in _air for y in range(top, bottom + 1) for x in range(left, right + 1))
 
 
-def clear_column(x: int, y1: int, y2: int) -> bool:
-    return all(is_air(x, y) for y in range(min(y1, y2), max(y1, y2) + 1))
+def landing_fy(pad: dict) -> int:
+    """Our `fy` when resting on `pad`."""
+    return pad["y"] * _rules["units_per_cell"] - 1 - _rules["taxi_half_height"]
 
 
-def clear_row(y: int, x1: int, x2: int) -> bool:
-    return all(is_air(x, y) for x in range(min(x1, x2), max(x1, x2) + 1))
-
-
-def cruise_row(x: int, y: int, tx: int, ty: int):
-    """The lowest row we can reach straight up (or down) from here, cross on to column `tx`
-    and descend from to `ty`; `None` if there is no such row."""
-    for r in range(min(y, ty), 0, -1):
-        if clear_column(x, y, r) and clear_row(r, x, tx) and clear_column(tx, r, ty):
-            return r
+def plan(fx: int, fy: int, pad: dict):
+    """`(pad_fx, cruise_fy)`: where over the pad to land and the height to cross at, or `None`.
+    Tries spots from the pad's centre outward and heights from the lowest up, every half cell:
+    straight up or down from here, straight across, then straight down onto the pad."""
+    u, half = _rules["units_per_cell"], _rules["units_per_cell"] // 2
+    centre = (pad["x"] + pad["len"] // 2) * u + half
+    spots = range(pad["x"] * u + half, (pad["x"] + pad["len"]) * u - half + 1, half)
+    land_fy = landing_fy(pad)
+    heights = [h for h in range((land_fy - MARGIN) // half * half, half - 1, -half)
+               if clear(fx, fx, min(fy, h - MARGIN), max(fy, h + MARGIN), 0)]
+    for pad_fx in sorted(spots, key=lambda s: abs(s - centre)):
+        for cruise_fy in heights:
+            if not clear(pad_fx, pad_fx, cruise_fy, land_fy - MARGIN):
+                break  # no straight way down from this height, nor from any higher
+            if clear(fx, pad_fx, cruise_fy, cruise_fy):
+                return pad_fx, cruise_fy
     return None
 
 
-def top_speed(dist: int, braking: int) -> int:
-    """The fastest speed from which we can still stop within `dist` cells: braking from `v`
-    takes about `v * (v + 1) // 2 * braking` cells (`braking` is 2 when gravity fights it)."""
-    v = 0
-    while v < _rules["max_speed"] and (v + 1) * (v + 2) // 2 * braking <= dist:
-        v += 1
-    return v
+def over(fx: int, fy: int, pad: dict) -> bool:
+    """True if we are above `pad`, with clear air all the way down to it."""
+    u, half = _rules["units_per_cell"], _rules["units_per_cell"] // 2
+    on_pad = pad["x"] * u + half <= fx <= (pad["x"] + pad["len"]) * u - half
+    land = landing_fy(pad) - 3  # 3 units of margin, but not into the pad itself
+    return on_pad and fy <= landing_fy(pad) and clear(fx, fx, min(fy, land), land, 3)
 
 
-def thrust(want: int, coast: int) -> int:
-    """The thrust (-1, 0 or 1) that brings the velocity closest to `want`, given the velocity
-    `coast` it would have without thrust."""
-    return max(-1, min(1, want - coast))
+def speed_for(dist: int, decel: int) -> int:
+    """How fast to go `dist` units: slow enough to stop in half of it, braking by `decel`."""
+    return min(CRUISE_SPEED, isqrt(decel * abs(dist))) * (1 if dist > 0 else -1)
+
+
+def side_jets(want_vx: int, vx: int) -> int:
+    """`ax`: the side jet that brings `vx` closest to `want_vx`."""
+    return min((0, -1, 1), key=lambda ax: abs(vx + ax * _rules["side_thrust"] - want_vx))
+
+
+def main_engine(want_vy: int, vy: int, tick: int) -> int:
+    """`ay`: fire the main engine (-1) if that brings `vy` closer to `want_vy` than falling."""
+    if tick % _rules["gravity_every"] == 0:
+        vy += _rules["gravity"]
+    return -1 if abs(vy - _rules["main_thrust"] - want_vy) < abs(vy - want_vy) else 0
+
+
+def hold(taxi: dict, fy: int, tick: int) -> int:
+    """`ay` that takes us to height `fy` and stops there (the engine brakes against gravity)."""
+    brake = _rules["main_thrust"] - _rules["gravity"]
+    return main_engine(speed_for(fy - taxi["fy"], brake), taxi["vy"], tick)
+
+
+def take_off():
+    return 0, -1
+
+
+def climb(taxi: dict, cruise_fy: int, tick: int):
+    return side_jets(0, taxi["vx"]), hold(taxi, cruise_fy, tick)
+
+
+def cross(taxi: dict, to_fx: int, cruise_fy: int, tick: int):
+    want_vx = speed_for(to_fx - taxi["fx"], _rules["side_thrust"])
+    return side_jets(want_vx, taxi["vx"]), hold(taxi, cruise_fy, tick)
+
+
+def descend(taxi: dict, pad: dict, tick: int):
+    """Stop sideways, sink fast while high, then at half the safe landing speed."""
+    brake = _rules["main_thrust"] - _rules["gravity"]
+    want_vy = max(_rules["safe_landing_vy"] // 2, speed_for(landing_fy(pad) - taxi["fy"], brake))
+    return side_jets(0, taxi["vx"]), main_engine(want_vy, taxi["vy"], tick)
+
+
+def detour(fx: int, fy: int, pad: dict):
+    """The nearest `fx` straight across at height `fy` with a `plan` to `pad`, or `None`."""
+    half = _rules["units_per_cell"] // 2
+    sides = [-1, 1]  # the directions not yet blocked by a wall
+    for dist in range(half, _width * 2 * half, half):
+        for side in list(sides):
+            if not clear(fx, fx + side * dist, fy, fy, 3):
+                sides.remove(side)
+            elif plan(fx + side * dist, fy, pad) is not None:
+                return fx + side * dist
+    return None
 
 
 def target(taxi: dict, passengers: list):
-    """`(pad, x)`: the pad to land on and the column we would like best, or `None`."""
+    """The pad to land on next, or `None`."""
     if taxi["passenger"] is not None:
-        pad = _pads[taxi["passenger"]["to"]]
-        return pad, pad["x"] + pad["len"] // 2
+        return _pads[taxi["passenger"]["to"]]
     if not passengers:
         return None
-    nearest = min(passengers, key=lambda p: abs(p["spot_x"] - taxi["x"])
-                  + abs(_pads[p["at"]]["y"] - 1 - taxi["y"]))
-    return _pads[nearest["at"]], nearest["spot_x"]
+    nearest = min(passengers, key=lambda p: abs(_pads[p["at"]]["x"] - taxi["x"])
+                  + abs(_pads[p["at"]]["y"] - taxi["y"]))
+    return _pads[nearest["at"]]
 
 
 def choose(taxi: dict, passengers: list, tick: int):
     """`(ax, ay, debug)` for our taxi on this tick."""
-    goal = target(taxi, passengers)
+    pad = target(taxi, passengers)
     if taxi["state"] == "landed":
         # take off for anything to do: even a passenger on this pad needs a fresh touchdown
-        return (0, -1, "takeoff") if goal is not None else (0, 0, "waiting")
+        return (*take_off(), "takeoff") if pad is not None else (0, 0, "waiting")
     if taxi["state"] != "flying":
         return 0, 0, "crashed"
-    x, y, vx, vy = taxi["x"], taxi["y"], taxi["vx"], taxi["vy"]
-    gravity = _rules["gravity"] if tick % _rules["gravity_every"] == 0 else 0
-    if goal is None:
-        return thrust(0, vx), thrust(0, vy + gravity), "hovering"
-    pad, best_x = goal
-    ty = pad["y"] - 1
-    columns = sorted(range(pad["x"], pad["x"] + pad["len"]), key=lambda c: abs(c - best_x))
-
-    if x in columns and vx == 0 and y <= ty and clear_column(x, y, ty):
-        # over the pad: sink, at 1 cell per tick (the safe landing speed) for the last cells
-        want = max(_rules["safe_landing_vy"], top_speed(ty - y, 2))
-        return thrust(0, vx), thrust(want, vy + gravity), f"descending to {pad['id']}"
-
-    # the pad column closest to the one we like best that has a straight way in
-    tx, r = best_x, None
-    for c in columns:
-        r = cruise_row(x, y, c, ty)
-        if r is not None:
-            tx = c
-            break
-    if r is None:
-        # no straight way in from here: creep sideways toward the target and look again,
-        # or just hover when a wall is in the way (walls and overhangs beat this bot)
-        step = 1 if tx > x else -1
-        want = step if vy == 0 and is_air(x + 2 * step, y) else 0
-        return thrust(want, vx), thrust(0, vy + gravity), f"no straight way to {pad['id']}"
-    if y != r or vy != 0:
-        # get to the cruising row first, without drifting sideways
-        dist = y - r
-        if dist > 0:
-            want = -top_speed(dist, 1)
-        else:
-            want = top_speed(-dist, 2)
-        return thrust(0, vx), thrust(want, vy + gravity), f"to cruising row {r}"
-    # on the cruising row: across to the target column, braking in time to stop on it
-    want = top_speed(abs(tx - x), 1) * (1 if tx > x else -1)
-    return thrust(want, vx), thrust(0, vy + gravity), f"cruising to column {tx}"
+    fx, fy, u = taxi["fx"], taxi["fy"], _rules["units_per_cell"]
+    here_fy = taxi["y"] * u + u // 2  # the centre of our cell
+    route = plan(fx, fy, pad) if pad is not None else None
+    if route is None:
+        wx = detour(fx, here_fy, pad) if pad is not None else None
+        if wx is None:
+            return (*climb(taxi, here_fy, tick), "hovering")
+        return (*cross(taxi, wx, here_fy, tick), f"detour to {pad['id']}")
+    if over(fx, fy, pad) and abs(taxi["vx"]) <= _rules["safe_landing_vx"]:
+        return (*descend(taxi, pad, tick), f"descending to {pad['id']}")
+    pad_fx, cruise_fy = route
+    if abs(fy - cruise_fy) > MARGIN:
+        return (*climb(taxi, cruise_fy, tick), f"to cruising height {cruise_fy}")
+    return (*cross(taxi, pad_fx, cruise_fy, tick), f"crossing to {pad['id']}")
 
 
 def move(state: dict) -> dict:
