@@ -13,22 +13,20 @@ do, the taxi lands on the nearest pad and waits there.
 
 from collections import deque
 
+from spacetaxi.sim import path_steps
+
 WALL = "#"
 AIR = ".S"
-DEFAULT_RULES = {"gravity": 1, "gravity_every": 2, "max_speed": 3, "safe_landing_vy": 1,
-                 "round_ticks": 375}
 
 _me = None
-_rules = dict(DEFAULT_RULES)
+_rules: dict = {}
 _planner = None
-_cache: dict = {}
 
 
 class Planner:
     """Ticks-to-land tables for every pad of one map under one set of rules."""
 
-    def __init__(self, rows, pads, rules=None):
-        rules = {**DEFAULT_RULES, **(rules or {})}
+    def __init__(self, rows, pads, rules: dict):
         self.rows = list(rows)
         self.w = len(self.rows[0])
         self.m = rules["max_speed"]
@@ -89,22 +87,14 @@ class Planner:
         if key in self._outcome:
             return self._outcome[key]
         x, y = cell % self.w, cell // self.w
-        dx, dy = abs(vx), abs(vy)
-        sx, sy = (vx > 0) - (vx < 0), (vy > 0) - (vy < 0)
-        i = j = 0
         result = None
-        while i < dx or j < dy:
-            if j >= dy or (i < dx and (2 * i + 1) * dy <= (2 * j + 1) * dx):
-                i += 1
-                nx, ny, ystep = x + sx, y, False
-            else:
-                j += 1
-                nx, ny, ystep = x, y + sy, True
+        for sx, sy in path_steps(vx, vy):
+            nx, ny = x + sx, y + sy
             ch = self.rows[ny][nx]
             if ch in AIR:
                 x, y = nx, ny
                 continue
-            if ch != WALL and ystep and sy == 1 and vx == 0 and vy <= self.safe:
+            if ch != WALL and sy == 1 and vx == 0 and vy <= self.safe:
                 result = -2 - self.pad_index[ch]
             else:
                 result = -1
@@ -169,16 +159,15 @@ class Planner:
 
 def welcome(info: dict) -> None:
     global _me, _rules
-    _me = info.get("id")
-    _rules = {**DEFAULT_RULES, **info.get("rules", {})}
+    _me = info["id"]
+    _rules = info["rules"]
 
 
 def start(info: dict) -> None:
+    """Build the tables, or keep the last ones when the map is the same as last round."""
     global _planner
-    key = (tuple(info["map"]), tuple(sorted(_rules.items())))
-    if key not in _cache:
-        _cache[key] = Planner(info["map"], info["pads"], _rules)
-    _planner = _cache[key]
+    if _planner is None or _planner.rows != info["map"]:
+        _planner = Planner(info["map"], info["pads"], _rules)
 
 
 def choose(planner: Planner, taxi: dict, passengers: list, tick: int, round_ticks: int):
@@ -218,12 +207,7 @@ def choose(planner: Planner, taxi: dict, passengers: list, tick: int, round_tick
 
 
 def move(state: dict) -> dict:
-    if _planner is None:
-        return {"ax": 0, "ay": 0}
-    taxis = state["taxis"]
-    taxi = next((t for t in taxis if t["id"] == _me), taxis[0] if len(taxis) == 1 else None)
-    if taxi is None:
-        return {"ax": 0, "ay": 0}
+    taxi = next(t for t in state["taxis"] if t["id"] == _me)
     ax, ay, debug = choose(_planner, taxi, state["passengers"], state["tick"],
                            _rules["round_ticks"])
     return {"ax": ax, "ay": ay, "debug": debug}
