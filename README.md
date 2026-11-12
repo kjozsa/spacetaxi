@@ -38,8 +38,10 @@ uv run spacetaxi view r.jsonl --out replay.html   # one self-contained file, wor
 uv run spacetaxi view r.jsonl --port 8000         # or serve it at http://localhost:8000/
 ```
 
-Space plays and pauses, `1`-`4` set 0.5x/1x/2x/4x, `C` turns the CRT scanlines off and on; the bar
-has a scrub bar and a round selector.
+The page opens on an INSERT COIN splash: browsers allow sound only after a click, so the round
+starts on the click. Space plays and pauses, `1`-`4` set 0.5x/1x/2x/4x, `C` turns the CRT scanlines
+off and on, `M` mutes and unmutes; the bar has a scrub bar and a round selector. All sounds (thrust
+hum, crash, pickup, delivery, round jingles) are synthesised with Web Audio, no audio files.
 The page makes no external requests. Its browser tests (`tests/e2e/`) need Chromium once:
 `uv run playwright install chromium`; they skip without it.
 

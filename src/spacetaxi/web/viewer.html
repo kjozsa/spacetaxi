@@ -45,6 +45,26 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color:
 #bar button[aria-pressed="true"] { background: var(--accent); color: #120f00; border-color: var(--accent); }
 #bar button:focus-visible, #bar select:focus-visible, #scrub:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 #play { min-width: 130px; }
+/* The INSERT COIN splash: browsers allow audio only after a click, so the round waits for one. */
+#splash {
+  position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; z-index: 5;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 48px;
+  background: radial-gradient(ellipse at center, rgba(18,13,46,.88) 0%, rgba(4,3,11,.96) 70%);
+  border: 0; padding: 0; margin: 0; cursor: pointer; font-family: var(--font); color: var(--fg);
+}
+#splash[hidden] { display: none; }
+#splash .title {
+  font-size: 72px; color: #2ef2ff; letter-spacing: 6px;
+  text-shadow: 0 0 12px #2ef2ff, 0 0 32px #7a5cff;
+}
+#splash .coin {
+  font-size: 40px; color: #ffd23f; text-shadow: 0 0 10px #ffd23f, 0 0 26px #ff8a3d;
+  animation: blink 1.1s steps(2, start) infinite;
+}
+#splash .hint { font-size: 18px; color: var(--muted); }
+#splash:focus-visible { outline: 2px solid var(--accent); outline-offset: -8px; }
+@keyframes blink { to { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { #splash .coin { animation: none; } }
 #scrub { flex: 1; accent-color: #7a5cff; height: 24px; }
 #tickLabel { font-size: 16px; color: var(--muted); min-width: 250px; text-align: right; font-variant-numeric: tabular-nums; }
 </style>
@@ -52,6 +72,11 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color:
 <div id="stage">
   <canvas id="board" width="1920" height="1080" aria-label="Replay of a spacetaxi round"></canvas>
   <div id="crt" title="key C"></div>
+  <button id="splash" aria-label="Insert coin: click to start">
+    <span class="title">SPACETAXI</span>
+    <span class="coin">INSERT COIN &mdash; CLICK TO START</span>
+    <span class="hint">SPACE PLAY/PAUSE &middot; 1-4 SPEED &middot; C SCREEN &middot; M MUTE</span>
+  </button>
   <div id="bar" role="group" aria-label="Playback">
     <button id="play" title="play / pause (space)">PLAY</button>
     <button data-speed="0.5" title="key 1">0.5&times;</button>
