@@ -24,16 +24,20 @@ def test_greedy_delivers_and_earns_alone(capsys, map_name):
                       "--rounds", "100", "--seed", "1")[0]
     assert greedy["avg_deliveries"] >= 2
     assert greedy["avg_money"] > 0
-    assert sum(greedy["crashes"].values()) <= greedy["rounds"]  # at most 1 crash per round
+    crashes = sum(greedy["crashes"].values())
+    assert crashes <= greedy["rounds"]  # at most 1 crash per round
+    assert crashes >= 1  # deliberately not crash-free: the starter leaves participants a flaw to fix
     assert greedy["errors"] == 0 and greedy["timeouts"] == 0
 
 
-def test_greedy_lands_on_each_cavern_pad_from_each_spawn():
+def test_greedy_lands_on_each_cavern_pad_from_some_spawn():
+    # some spawns crash on purpose (it cruises too close to the middle bar), so one landing per pad
     m = load_map("cavern")
     rules = Rules().to_dict()
     greedy.welcome({"id": "t", "rules": rules})
     greedy.start({"rules": rules, "map": m.rows, "pads": [p.to_dict() for p in m.pads]})
     for pad in m.pads:
+        landed = []
         for spawn in m.spawns:
             world = World(m, players=["t"])
             taxi = world.taxis[0]
@@ -43,7 +47,8 @@ def test_greedy_lands_on_each_cavern_pad_from_each_spawn():
                 state["passenger"] = {"id": 0, "to": pad.id, "fare": 0}
                 ax, ay, _debug = greedy.choose(state, [], world.tick)
                 world.step({"t": {"ax": ax, "ay": ay}})
-            assert taxi.state == LANDED and taxi.pad == pad.id, (pad.id, spawn, world.tick)
+            landed.append(taxi.state == LANDED and taxi.pad == pad.id)
+        assert any(landed), pad.id
 
 
 def test_pilot_beats_every_greedy(capsys):

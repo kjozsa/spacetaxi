@@ -11,8 +11,8 @@ than `safe_landing_vy`. With no such route from here, it first goes sideways (`d
 
 from math import isqrt
 
-CRUISE_SPEED = 8  # top speed we fly at, in units per tick, across and up or down
-MARGIN = 6        # units of air we keep around the taxi's box on the planned route
+CRUISE_SPEED = 10  # top speed we fly at, in units per tick, across and up or down
+MARGIN = 2         # units of air we keep around the taxi's box on the planned route
 
 _me = None      # our taxi id, from `welcome`
 _rules = {}     # the rule constants, from `welcome` (and again from `round_start`)
