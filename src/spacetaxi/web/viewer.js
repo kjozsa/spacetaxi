@@ -14,6 +14,7 @@ const FLYING = 0, LANDED = 1, CRASHED = 2;
 const stage = document.getElementById("stage");
 const cv = document.getElementById("board"), ctx = cv.getContext("2d");
 const playBtn = document.getElementById("play");
+const soundBtn = document.getElementById("sound");
 const scrub = document.getElementById("scrub");
 const roundSel = document.getElementById("round");
 const tickLabel = document.getElementById("tickLabel");
@@ -339,8 +340,11 @@ function updateHum(n) {
   humGain.gain.setTargetAtTime(vol, audio.currentTime, 0.04);
 }
 
+// The M key and the bar's sound button both come here, so the button always shows the state.
 function setMuted(on) {
   window.spacetaxi.muted = on;
+  soundBtn.textContent = on ? "SOUND OFF" : "SOUND ON";
+  soundBtn.setAttribute("aria-pressed", String(!on));
   if (master) master.gain.setTargetAtTime(on ? 0 : VOLUME, audio.currentTime, 0.02);
 }
 
@@ -643,6 +647,7 @@ function setSpeed(v) {
 playBtn.addEventListener("click", () => setPlaying(!playing));
 document.querySelectorAll("[data-speed]").forEach(b =>
   b.addEventListener("click", () => setSpeed(Number(b.dataset.speed))));
+soundBtn.addEventListener("click", () => setMuted(!window.spacetaxi.muted));
 scrub.addEventListener("input", () => seek(Number(scrub.value)));
 roundSel.addEventListener("change", () => { setPlaying(false); selectRound(Number(roundSel.value)); });
 window.addEventListener("keydown", e => {
