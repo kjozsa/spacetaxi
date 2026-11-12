@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from spacetaxi.bots.lander import Planner
+from spacetaxi.bots.pilot import Pilot
 from spacetaxi.cli import main
 from spacetaxi.maps import Map, MapError, Pad, load_map, parse_map
 from spacetaxi.sim import Rules
@@ -170,18 +170,11 @@ def test_cavern_cli_prints_pads_and_spawns(capsys):
         assert f"\n{pad_id} " in out
 
 
-@pytest.mark.skip(reason="bots are rewritten for lander physics")
-def test_canyon_every_pad_reachable_from_every_spawn_and_pad():
-    m = load_map("canyon")
-    rules = Rules().to_dict()
-    planner = Planner(m.rows, [p.to_dict() for p in m.pads], rules)
-    starts = [{"x": x, "y": y, "vx": 0, "vy": 0, "state": "flying"} for x, y in m.spawns]
-    starts += [
-        {"x": x, "y": p.y - 1, "vx": 0, "vy": 0, "state": "landed"}
-        for p in m.pads
-        for x in range(p.x, p.x + p.len)
-    ]
-    for taxi in starts:
-        for tick in range(rules["gravity_every"]):
-            for pad in m.pads:
-                assert planner.plan(taxi, tick, pad.id) is not None, (taxi, tick, pad.id)
+@pytest.mark.parametrize("name", ["canyon", "cavern"])
+def test_every_pad_reachable_from_every_spawn_and_pad(name):
+    m = load_map(name)
+    pilot = Pilot(m.rows, [p.to_dict() for p in m.pads], Rules().to_dict())
+    starts = list(m.spawns) + [(x, p.y - 1) for p in m.pads for x in range(p.x, p.x + p.len)]
+    for cell in starts:
+        for pad in m.pads:
+            assert pilot.ticks(pad.id, cell) > 0, (cell, pad.id)

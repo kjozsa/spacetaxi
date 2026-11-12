@@ -31,7 +31,7 @@ LAST = Rules().round_ticks
 @pytest.fixture(scope="module")
 def replay(tmp_path_factory):
     out = tmp_path_factory.mktemp("replay") / "r.jsonl"
-    assert main(["run", "--map", "canyon", "--bots", "lander,greedy,lander,random",
+    assert main(["run", "--map", "canyon", "--bots", "pilot,greedy,pilot,random",
                  "--rounds", "2", "--seed", "1", "--replay", str(out)]) == 0
     return out
 
@@ -213,7 +213,6 @@ def wait_for_round_end(page, timeout=60):
     raise AssertionError(f"round did not end, at tick {state(page)['tick']}")
 
 
-@pytest.mark.skip(reason="bots are rewritten for lander physics")
 def test_effect_counters_follow_the_replay_events(viewer, replay, shots):
     ticks = round_one(replay)
     expected = {fx: sum(e["type"] == kind for t in ticks for e in t["events"])
@@ -255,7 +254,6 @@ def play_into(page, kind, counter):
     page.wait_for_function(f"window.spacetaxi.fx.{counter} > {before}", timeout=5000)
 
 
-@pytest.mark.skip(reason="bots are rewritten for lander physics")
 def test_explosion_and_cash_popup(viewer, shots):
     play_into(viewer, "crash", "explosions")
     viewer.wait_for_timeout(60)
@@ -280,7 +278,6 @@ def test_reduced_motion_turns_screen_shake_off(browser, page_file):
 SFX_EVENTS = {"boom": "crash", "chime": "pickup", "cash": "deliver"}
 
 
-@pytest.mark.skip(reason="bots are rewritten for lander physics")
 def test_sound_counters_follow_the_replay_events(splash_page, replay):
     """From the click to the end of round 1: one sound per crash, pickup and delivery, the hum
     while taxis thrust, a jingle at the start and the end, and no audio errors."""
