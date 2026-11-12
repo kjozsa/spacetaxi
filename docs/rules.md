@@ -205,7 +205,8 @@ Sent once when a bot joins. Carries the bot's taxi id and the rules (every const
 
 ### `round_start`
 
-Carries the map rows, the pads, the spawn cells and the players.
+Carries the map rows, the pads, the spawn cells, the players and the rules in effect for the
+round (every constant above, same shape as in `welcome`).
 
 ```json
 {
@@ -231,7 +232,14 @@ Carries the map rows, the pads, the spawn cells and the players.
     {"id": "D", "x": 15, "y": 9, "len": 3}
   ],
   "spawns": [{"x": 3, "y": 2}, {"x": 15, "y": 2}],
-  "players": ["alice", "bob"]
+  "players": ["alice", "bob"],
+  "rules": {
+    "tick_ms": 200, "deadline_ms": 150, "round_ticks": 375,
+    "gravity": 1, "gravity_every": 2, "max_speed": 3, "safe_landing_vy": 1,
+    "crash_penalty_ticks": 15, "crash_cost": 25,
+    "passenger_spawn_every": 20, "passenger_expires": 150,
+    "fare_base": 50, "fare_per_cell": 2
+  }
 }
 ```
 

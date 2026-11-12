@@ -176,6 +176,7 @@ def run(
             "pads": [p.to_dict() for p in game_map.pads],
             "spawns": [{"x": x, "y": y} for x, y in game_map.spawns],
             "players": list(ids),
+            "rules": rules.to_dict(),
         }
         emit(round_start)
         for player in players:
