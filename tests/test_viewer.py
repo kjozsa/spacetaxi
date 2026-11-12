@@ -6,6 +6,7 @@ import urllib.request
 from pathlib import Path
 
 from spacetaxi.cli import main
+from spacetaxi.sim import Rules
 from spacetaxi.viewer import build_html, make_server, replay_data
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -30,7 +31,7 @@ def test_view_bad_replay(tmp_path, capsys):
 def test_replay_data_compacts_ticks():
     [rnd] = replay_data(str(STACKED))
     assert rnd["players"] == ["alice", "bob", "carol"]
-    assert rnd["rules"]["tick_ms"] == 200
+    assert rnd["rules"]["tick_ms"] == Rules().tick_ms
     tick = rnd["ticks"][0]
     assert tick["t"] == 1
     # [x, y, vx, state, carrying, money]

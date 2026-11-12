@@ -13,7 +13,10 @@ All simulation values are integers. There is no floating point anywhere in the s
 ## Grid
 
 - `x` grows to the right, `y` grows downward, the origin `(0, 0)` is the top-left cell.
-- Positions `(x, y)` and velocities `(vx, vy)` are integers, in cells and cells per tick.
+- Each cell is `units_per_cell` units wide and high. A taxi's fine position `(fx, fy)` is in
+  units, and so is its velocity `(vx, vy)`, in units per tick. All are integers.
+- A taxi's cell `(x, y)` is the cell of its fine position: `x = fx // units_per_cell`,
+  `y = fy // units_per_cell`.
 - Negative `vy` means moving up; positive `vy` means moving down.
 
 ## Map
@@ -53,11 +56,15 @@ Example:
 
 ## Taxis
 
-- Every player has one taxi. A taxi occupies one cell.
+- Every player has one taxi. A taxi is a box of `±taxi_half_width` by `±taxi_half_height`
+  units around its fine position `(fx, fy)`, its centre: it covers the units from
+  `fx - taxi_half_width` to `fx + taxi_half_width` across and from `fy - taxi_half_height` to
+  `fy + taxi_half_height` down, both ends included, and overlaps every cell they fall in.
 - Taxis are ghosts: they never collide with each other, and any number may share a cell.
 - A taxi is in one of three states: `flying`, `landed`, `crashed`.
 - Each taxi has `money` (starts at 0, may go negative), and carries at most one passenger.
-- At round start every taxi is `flying` with velocity `(0, 0)` at a random `S` cell (seeded RNG).
+- At round start every taxi is `flying` with velocity `(0, 0)` at the centre of a random `S`
+  cell (seeded RNG): `fx = x * units_per_cell + units_per_cell // 2`, the same for `fy`.
 
 ## Moves
 
@@ -67,9 +74,11 @@ Every tick each bot answers with a move:
 {"ax": -1, "ay": 0}
 ```
 
-`ax` and `ay` must each be one of the integers `-1`, `0`, `1`. A missing answer, an answer that
-arrives after `deadline_ms`, or an invalid answer (bad JSON, missing key, any other value or
-type, booleans included) counts as `{"ax": 0, "ay": 0}`: the taxi coasts.
+`ax` and `ay` must each be one of the integers `-1`, `0`, `1`. `ax` fires the side jets
+(`-1` left, `1` right); `ay = -1` fires the main engine, upward. There is no down thruster:
+`ay = 1` is a valid answer but does nothing, the same as `ay = 0`. A missing answer, an
+answer that arrives after `deadline_ms`, or an invalid answer (bad JSON, missing key, any
+other value or type, booleans included) counts as `{"ax": 0, "ay": 0}`: the taxi coasts.
 
 ## Tick order
 
@@ -78,33 +87,40 @@ Ticks are numbered from `1` to `round_ticks`. Every tick runs these four steps i
 ### 1. Apply moves
 
 - A **flying** taxi:
-  1. `vx += ax`, `vy += ay`;
-  2. then `vy += gravity` if `tick % gravity_every == 0`;
-  3. then both `vx` and `vy` are clamped to `[-max_speed, max_speed]`.
-- A **landed** taxi takes off if `ay == -1`: it becomes `flying` with `vx = 0`, `vy = -1`
-  (gravity and `ax` are not applied on the takeoff tick) and emits `takeoff`. Otherwise it stays
-  where it is, landed, with velocity `(0, 0)`.
+  1. `vx += ax * side_thrust`;
+  2. then `vy -= main_thrust` if `ay == -1` (`ay == 1` changes nothing);
+  3. then `vy += gravity` if `tick % gravity_every == 0`;
+  4. then both `vx` and `vy` are clamped to `[-max_speed, max_speed]`.
+- A **landed** taxi takes off if `ay == -1`: it becomes `flying` with `vx = 0`,
+  `vy = gravity - main_thrust` (`ax` is ignored on the takeoff tick) and emits `takeoff`.
+  Otherwise it stays where it is, landed, with velocity `(0, 0)`.
 - A **crashed** taxi ignores its move.
 
 ### 2. Move
 
-Each flying taxi (including one that just took off) moves along a 4-connected Bresenham path
-from `(x, y)` to `(x + vx, y + vy)`, one cell per step, `|vx| + |vy|` steps in total.
+Each flying taxi (including one that just took off) moves its box along a 4-connected
+Bresenham path from `(fx, fy)` to `(fx + vx, fy + vy)`, one unit per step, `|vx| + |vy|` steps
+in total.
 
 The path, with `dx = |vx|`, `dy = |vy|`, after `i` x-steps and `j` y-steps: the next step is an
 x-step (by `sign(vx)`) if `(2i + 1) * dy <= (2j + 1) * dx`, otherwise a y-step (by `sign(vy)`).
 So on ties the x-step comes first.
 
-For each step, look at the cell being entered:
+For each step, look at the cells the box would overlap after it. Walls and pad tiles are
+**solid**; cells outside the map count as walls.
 
-- **air / spawn:** the taxi moves there and continues.
-- **wall:** the taxi **crashes** with cause `wall`. It stays at the last free cell.
-- **pad tile, entered by a y-step downward:** a **touchdown**. The taxi stays on the cell above
-  the pad tile (its current cell).
-  - If `vx == 0` and `vy <= safe_landing_vy`: the taxi **lands**. Its state becomes `landed`,
-    its velocity `(0, 0)`, and it emits `landed`.
+- **no solid cell:** the taxi moves there and continues.
+- **a touchdown:** the step is a y-step downward, every solid cell the box would overlap is a
+  pad tile, and all of them are in the box's bottom row. The taxi stays where it is, its box
+  resting just above the pad.
+  - If `|vx| <= safe_landing_vx` and `vy <= safe_landing_vy`: the taxi **lands**. Its state
+    becomes `landed`, its velocity `(0, 0)`, and it emits `landed`. It lands on the pad under
+    its centre, i.e. the pad of the tile in column `fx // units_per_cell` of that row; if that
+    tile is not a pad, on the first (leftmost) pad tile the box touched.
   - Otherwise it **crashes** with cause `hard_landing`.
-- **pad tile, entered any other way** (x-step, or y-step upward): a crash with cause `wall`.
+- **any other solid contact** (a wall, a pad entered by an x-step or upward, or from the side
+  of the box): the taxi **crashes** with cause `wall`. It stays where it is, at the last free
+  position.
 
 Movement stops at the first touchdown or crash. A taxi that finishes its path without either
 stays `flying` with its velocity unchanged.
@@ -130,9 +146,10 @@ does not). Deliveries are resolved first, then pickups.
 ### 4. Respawns and passengers
 
 1. **Respawns.** Every taxi that was already `crashed` before this tick decrements
-   `respawn_in`. When it reaches `0` the taxi respawns: `flying`, velocity `(0, 0)`, at a random
-   `S` cell (seeded RNG), and emits `respawn`. A taxi that crashed this tick is not counted
-   down, so it sits out exactly `crash_penalty_ticks` full ticks.
+   `respawn_in`. When it reaches `0` the taxi respawns: `flying`, velocity `(0, 0)`, at the
+   centre of a random `S` cell (seeded RNG), and emits `respawn` with that cell. A taxi that
+   crashed this tick is not counted down, so it sits out exactly `crash_penalty_ticks` full
+   ticks.
 2. **Expiry.** Every waiting passenger decrements `expires_in`. When it reaches `0` the
    passenger disappears and emits `expired`.
 3. **Spawn.** If `tick % passenger_spawn_every == 0` and fewer than `players + 2` passengers
@@ -153,8 +170,8 @@ When a taxi crashes (cause `wall` or `hard_landing`):
 - it pays `crash_cost` (`money -= crash_cost`);
 - any passenger it carries is lost (`lost` event);
 - its state becomes `crashed`, velocity `(0, 0)`, and `respawn_in = crash_penalty_ticks`;
-- after `crash_penalty_ticks` ticks it respawns at a random `S` cell (seeded RNG) with
-  velocity `(0, 0)` (see step 4).
+- after `crash_penalty_ticks` ticks it respawns at the centre of a random `S` cell (seeded
+  RNG) with velocity `(0, 0)` (see step 4).
 
 ## Randomness
 
@@ -166,17 +183,23 @@ moves replays identically.
 
 | Name                    | Default | Meaning                                                          |
 |-------------------------|--------:|------------------------------------------------------------------|
-| `tick_ms`               |   `200` | wall-clock length of one tick, in milliseconds                   |
-| `deadline_ms`           |   `150` | time a bot has to answer a tick, in milliseconds                 |
-| `round_ticks`           |   `375` | ticks per round                                                  |
-| `gravity`               |     `1` | added to `vy` on gravity ticks                                   |
-| `gravity_every`         |     `2` | gravity applies on ticks where `tick % gravity_every == 0`       |
-| `max_speed`             |     `3` | `vx` and `vy` are clamped to `±max_speed`                        |
-| `safe_landing_vy`       |     `1` | highest `vy` that lands instead of crashing (and `vx` must be 0) |
-| `crash_penalty_ticks`   |    `15` | ticks a crashed taxi waits before respawning                     |
+| `tick_ms`               |   `100` | wall-clock length of one tick, in milliseconds                   |
+| `deadline_ms`           |    `75` | time a bot has to answer a tick, in milliseconds                 |
+| `round_ticks`           |   `750` | ticks per round                                                  |
+| `units_per_cell`        |    `32` | units per cell, across and down                                  |
+| `gravity`               |     `2` | added to `vy` on gravity ticks                                   |
+| `gravity_every`         |     `1` | gravity applies on ticks where `tick % gravity_every == 0`       |
+| `main_thrust`           |     `4` | taken off `vy` when `ay == -1`                                   |
+| `side_thrust`           |     `2` | added to `vx` times `ax`                                         |
+| `max_speed`             |    `24` | `vx` and `vy` are clamped to `±max_speed`, in units per tick     |
+| `safe_landing_vy`       |     `8` | highest `vy` that lands instead of crashing                      |
+| `safe_landing_vx`       |     `3` | highest `abs(vx)` that lands instead of crashing                 |
+| `taxi_half_width`       |    `15` | the taxi's box reaches this many units left and right of `fx`    |
+| `taxi_half_height`      |    `12` | the taxi's box reaches this many units up and down of `fy`       |
+| `crash_penalty_ticks`   |    `30` | ticks a crashed taxi waits before respawning                     |
 | `crash_cost`            |    `25` | money a taxi pays per crash                                      |
-| `passenger_spawn_every` |    `20` | a passenger may spawn on ticks where `tick % this == 0`          |
-| `passenger_expires`     |   `150` | ticks a waiting passenger waits before disappearing              |
+| `passenger_spawn_every` |    `40` | a passenger may spawn on ticks where `tick % this == 0`          |
+| `passenger_expires`     |   `300` | ticks a waiting passenger waits before disappearing              |
 | `fare_base`             |    `50` | fixed part of every fare                                         |
 | `fare_per_cell`         |     `2` | fare per cell of Manhattan distance between pad centres          |
 
@@ -194,10 +217,11 @@ Sent once when a bot joins. Carries the bot's taxi id and the rules (every const
   "type": "welcome",
   "id": "alice",
   "rules": {
-    "tick_ms": 200, "deadline_ms": 150, "round_ticks": 375,
-    "gravity": 1, "gravity_every": 2, "max_speed": 3, "safe_landing_vy": 1,
-    "crash_penalty_ticks": 15, "crash_cost": 25,
-    "passenger_spawn_every": 20, "passenger_expires": 150,
+    "tick_ms": 100, "deadline_ms": 75, "round_ticks": 750, "units_per_cell": 32,
+    "gravity": 2, "gravity_every": 1, "main_thrust": 4, "side_thrust": 2, "max_speed": 24,
+    "safe_landing_vy": 8, "safe_landing_vx": 3, "taxi_half_width": 15, "taxi_half_height": 12,
+    "crash_penalty_ticks": 30, "crash_cost": 25,
+    "passenger_spawn_every": 40, "passenger_expires": 300,
     "fare_base": 50, "fare_per_cell": 2
   }
 }
@@ -234,10 +258,11 @@ round (every constant above, same shape as in `welcome`).
   "spawns": [{"x": 3, "y": 2}, {"x": 15, "y": 2}],
   "players": ["alice", "bob"],
   "rules": {
-    "tick_ms": 200, "deadline_ms": 150, "round_ticks": 375,
-    "gravity": 1, "gravity_every": 2, "max_speed": 3, "safe_landing_vy": 1,
-    "crash_penalty_ticks": 15, "crash_cost": 25,
-    "passenger_spawn_every": 20, "passenger_expires": 150,
+    "tick_ms": 100, "deadline_ms": 75, "round_ticks": 750, "units_per_cell": 32,
+    "gravity": 2, "gravity_every": 1, "main_thrust": 4, "side_thrust": 2, "max_speed": 24,
+    "safe_landing_vy": 8, "safe_landing_vx": 3, "taxi_half_width": 15, "taxi_half_height": 12,
+    "crash_penalty_ticks": 30, "crash_cost": 25,
+    "passenger_spawn_every": 40, "passenger_expires": 300,
     "fare_base": 50, "fare_per_cell": 2
   }
 }
@@ -248,7 +273,8 @@ round (every constant above, same shape as in `welcome`).
 Sent at the start of every tick with the state after the previous tick, and the events that
 happened in it. The bot answers with a `move` for tick `tick`.
 
-- `taxis`: one per player, with `id`, `x`, `y`, `vx`, `vy`, `state`, `pad` (the pad id the taxi
+- `taxis`: one per player, with `id`, `x`, `y` (its cell), `fx`, `fy` (its fine position, in
+  units), `vx`, `vy`, `state`, `pad` (the pad id the taxi
   is landed on, or `null`), `passenger` (`{id, to, fare}` or `null`), `money`, `respawn_in`
   (ticks until respawn while crashed, otherwise `0`).
 - `passengers`: the waiting passengers, with `id`, `at` (pad id), `spot_x`, `to` (pad id),
@@ -260,9 +286,11 @@ happened in it. The bot answers with a `move` for tick `tick`.
   "type": "tick",
   "tick": 42,
   "taxis": [
-    {"id": "alice", "x": 4, "y": 6, "vx": 0, "vy": 0, "state": "landed", "pad": "A",
+    {"id": "alice", "x": 4, "y": 6, "fx": 144, "fy": 211, "vx": 0, "vy": 0,
+     "state": "landed", "pad": "A",
      "passenger": {"id": 3, "to": "D", "fare": 78}, "money": 101, "respawn_in": 0},
-    {"id": "bob", "x": 9, "y": 3, "vx": 0, "vy": 0, "state": "crashed", "pad": null,
+    {"id": "bob", "x": 9, "y": 3, "fx": 300, "fy": 110, "vx": 0, "vy": 0,
+     "state": "crashed", "pad": null,
      "passenger": null, "money": -25, "respawn_in": 12}
   ],
   "passengers": [

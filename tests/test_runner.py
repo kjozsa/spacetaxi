@@ -54,7 +54,7 @@ def test_bad_bots_count_errors_and_coast(tmp_path, capsys):
     bots = f"{raises},{half},{idle_like}"
     assert main(["run", "--bots", bots, "--rounds", "2", "--seed", "3", "--json"]) == 0
     raiser, halfbot, noop = json.loads(capsys.readouterr().out)
-    ticks = 2 * 375
+    ticks = 2 * Rules().round_ticks
     assert raiser["name"] == "raiser" and raiser["errors"] == ticks
     assert halfbot["name"] == "half" and halfbot["errors"] == ticks
     assert noop["errors"] == 0
@@ -96,9 +96,9 @@ def test_replay_line_shapes(tmp_path, capsys):
     assert main(["run", "--bots", "random,idle", "--rounds", "2", "--seed", "4",
                  "--replay", str(out)]) == 0
     lines = [json.loads(line) for line in out.read_text().splitlines()]
-    assert len(lines) == 2 * (1 + 375 + 1)
+    per_round = 1 + Rules().round_ticks + 1
+    assert len(lines) == 2 * per_round
 
-    per_round = 1 + 375 + 1
     for r in range(2):
         chunk = lines[r * per_round:(r + 1) * per_round]
         start, ticks, end = chunk[0], chunk[1:-1], chunk[-1]
@@ -109,7 +109,7 @@ def test_replay_line_shapes(tmp_path, capsys):
         assert set(start["pads"][0]) == {"id", "x", "y", "len"}
         assert set(start["spawns"][0]) == {"x", "y"}
 
-        assert [t["tick"] for t in ticks] == list(range(1, 376))
+        assert [t["tick"] for t in ticks] == list(range(1, Rules().round_ticks + 1))
         for t in ticks:
             assert set(t) == {"type", "tick", "taxis", "passengers", "events", "moves"}
             assert list(t["moves"]) == ["random", "idle"]
@@ -118,8 +118,8 @@ def test_replay_line_shapes(tmp_path, capsys):
             assert t["type"] == "tick"
             assert [taxi["id"] for taxi in t["taxis"]] == ["random", "idle"]
             for taxi in t["taxis"]:
-                assert set(taxi) == {"id", "x", "y", "vx", "vy", "state", "pad", "passenger",
-                                     "money", "respawn_in"}
+                assert set(taxi) == {"id", "x", "y", "fx", "fy", "vx", "vy", "state", "pad",
+                                     "passenger", "money", "respawn_in"}
             for p in t["passengers"]:
                 assert set(p) == {"id", "at", "spot_x", "to", "fare", "expires_in"}
 
