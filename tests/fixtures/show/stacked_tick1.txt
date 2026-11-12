@@ -1,0 +1,8 @@
+#######
+#.....#
+#2..+.#
+#AA.BB#
+#######
+1 alice landed  0,0 10 - (stacked)
+2 bob   landed  0,0 20 -
+3 carol landed  0,0 30 3→A (stacked)

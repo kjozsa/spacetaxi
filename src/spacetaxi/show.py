@@ -2,7 +2,8 @@
 
 Reads the JSON-lines replay written by `spacetaxi run --replay`. On the board, `#` is a wall,
 `A`-`Z` a pad tile, `.` air (spawn cells too), `@` a waiting passenger (on the cell above its
-spot) and `1`-`9` the taxis in player order.
+spot), `1`-`9` the taxis in player order and `+` a cell that 2 or more taxis share (their
+legend lines end with `(stacked)`).
 """
 
 import json
@@ -57,7 +58,8 @@ def taxi_mark(index: int) -> str:
 
 
 def render(start: dict, tick: dict) -> str:
-    """The board, then one line per taxi: digit, name, state, `vx,vy`, money, passenger."""
+    """The board, then one line per taxi: digit, name, state, `vx,vy`, money, passenger, and
+    `(stacked)` when it shares its cell with another taxi."""
     grid = [list(row.replace("S", ".")) for row in start["map"]]
     pads = {p["id"]: p for p in start["pads"]}
     for p in tick["passengers"]:
@@ -65,9 +67,12 @@ def render(start: dict, tick: dict) -> str:
         if pad is not None:
             grid[pad["y"] - 1][p["spot_x"]] = "@"
     marks = {}
+    counts: dict[tuple[int, int], int] = {}
     for i, taxi in enumerate(tick["taxis"]):
         marks[taxi["id"]] = taxi_mark(i)
-        grid[taxi["y"]][taxi["x"]] = taxi_mark(i)
+        cell = (taxi["x"], taxi["y"])
+        counts[cell] = counts.get(cell, 0) + 1
+        grid[taxi["y"]][taxi["x"]] = taxi_mark(i) if counts[cell] == 1 else "+"
     lines = ["".join(row) for row in grid]
 
     names = [t["id"] for t in tick["taxis"]]
@@ -78,6 +83,7 @@ def render(start: dict, tick: dict) -> str:
         lines.append(
             f"{marks[taxi['id']]} {taxi['id'].ljust(width)} {taxi['state']:<7} "
             f"{taxi['vx']},{taxi['vy']} {taxi['money']} {carrying}"
+            + (" (stacked)" if counts[(taxi["x"], taxi["y"])] > 1 else "")
         )
     return "\n".join(lines)
 
