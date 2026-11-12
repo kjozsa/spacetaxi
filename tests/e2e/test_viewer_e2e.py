@@ -52,17 +52,38 @@ def browser():
         b.close()
 
 
-@pytest.fixture
-def viewer(browser, page_file):
-    page = browser.new_page(viewport={"width": 1920, "height": 1080})
+def open_page(browser, page_file, **kwargs):
+    """The viewer, loaded and drawing, with the INSERT COIN splash still up."""
+    page = browser.new_page(viewport={"width": 1920, "height": 1080}, **kwargs)
     errors = []
-    page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+    page.on("console", lambda m: errors.append(m.text) if m.type in ("error", "warning") else None)
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.goto(page_file.as_uri())
     page.wait_for_function("window.spacetaxi && window.spacetaxi.fps > 0")
+    return page, errors
+
+
+def insert_coin(page):
+    """Click the splash (the round starts playing), then pause and go back to the first tick."""
+    page.click("#splash")
+    page.wait_for_function("window.spacetaxi.started")
+    page.keyboard.press("Space")
+    scrub_to(page, 0)
+    page.wait_for_timeout(100)
+
+
+@pytest.fixture
+def splash_page(browser, page_file):
+    page, errors = open_page(browser, page_file)
     yield page
     page.close()
     assert errors == []
+
+
+@pytest.fixture
+def viewer(splash_page):
+    insert_coin(splash_page)
+    return splash_page
 
 
 @pytest.fixture(scope="module")
@@ -93,10 +114,34 @@ def test_out_file_has_no_external_references(page_file):
     assert not re.search(r"https?://", page_file.read_text(encoding="utf-8"))
 
 
-def test_paused_at_tick_one_on_load(viewer, shots):
+def test_waits_for_the_click(splash_page, shots):
+    s = state(splash_page)
+    assert s["round"] == 1 and s["tick"] == 1 and not s["started"]
+    splash_page.keyboard.press("Space")
+    splash_page.keyboard.press("4")
+    splash_page.wait_for_timeout(600)
+    s = state(splash_page)
+    assert s["tick"] == 1 and not s["started"]
+    assert splash_page.locator("#splash").is_visible()
+    assert "INSERT COIN" in splash_page.locator("#splash").inner_text()
+    assert all(v == 0 for v in s["sfx"].values()) and all(v == 0 for v in s["fx"].values())
+    splash_page.screenshot(path=str(shots / "splash.png"))
+
+
+def test_click_starts_the_round_with_a_jingle(splash_page):
+    splash_page.click("#splash")
+    assert not splash_page.locator("#splash").is_visible()
+    splash_page.wait_for_function("window.spacetaxi.tick > 2")
+    s = state(splash_page)
+    assert s["started"] and s["sfx"]["jingle"] == 1
+    assert splash_page.evaluate("document.getElementById('play').textContent") == "PAUSE"
+
+
+def test_paused_at_tick_one_after_the_coin(viewer, shots):
     s = state(viewer)
     assert s["round"] == 1
     first = s["tick"]
+    assert first == 1
     viewer.wait_for_timeout(500)
     assert state(viewer)["tick"] == first
     viewer.screenshot(path=str(shots / "tick0.png"))
@@ -171,7 +216,8 @@ def test_effect_counters_follow_the_replay_events(viewer, replay, shots):
     thrust = any(m["ax"] or m["ay"] for t in ticks for m in t["moves"].values())
     assert all(expected.values()) and thrust  # the canyon replay has every kind of effect
     before = state(viewer)["fx"]
-    assert before["flames"] == 0  # paused: no flames yet
+    viewer.wait_for_timeout(200)
+    assert state(viewer)["fx"]["flames"] == before["flames"]  # paused: no flames
     viewer.keyboard.press("4")
     viewer.keyboard.press("Space")
     wait_for_round_end(viewer)
@@ -216,14 +262,43 @@ def test_explosion_and_cash_popup(viewer, shots):
 
 
 def test_reduced_motion_turns_screen_shake_off(browser, page_file):
-    page = browser.new_page(viewport={"width": 1920, "height": 1080}, reduced_motion="reduce")
+    page, _ = open_page(browser, page_file, reduced_motion="reduce")
     try:
-        page.goto(page_file.as_uri())
-        page.wait_for_function("window.spacetaxi && window.spacetaxi.fps > 0")
+        insert_coin(page)
         play_into(page, "crash", "explosions")
         assert state(page)["fx"]["shakes"] == 0
     finally:
         page.close()
+
+
+SFX_EVENTS = {"boom": "crash", "chime": "pickup", "cash": "deliver"}
+
+
+def test_sound_counters_follow_the_replay_events(splash_page, replay):
+    """From the click to the end of round 1: one sound per crash, pickup and delivery, the hum
+    while taxis thrust, a jingle at the start and the end, and no audio errors."""
+    ticks = round_one(replay)
+    expected = {s: sum(e["type"] == kind for t in ticks for e in t["events"])
+                for s, kind in SFX_EVENTS.items()}
+    assert all(expected.values())
+    splash_page.click("#splash")
+    assert splash_page.evaluate("typeof AudioContext") == "function"
+    splash_page.keyboard.press("4")
+    wait_for_round_end(splash_page)
+    sfx = state(splash_page)["sfx"]
+    assert {s: sfx[s] for s in SFX_EVENTS} == expected
+    assert sfx["hum"] > 0 and sfx["jingle"] == 2
+    assert state(splash_page)["thrusting"] == 0  # stopped: the hum is off
+
+
+def test_m_toggles_mute(viewer):
+    assert state(viewer)["muted"] is False
+    viewer.keyboard.press("m")
+    assert state(viewer)["muted"] is True
+    play_into(viewer, "crash", "explosions")  # muted sounds still count
+    assert state(viewer)["sfx"]["boom"] >= 1
+    viewer.keyboard.press("M")
+    assert state(viewer)["muted"] is False
 
 
 def test_c_toggles_the_scanlines(viewer):
