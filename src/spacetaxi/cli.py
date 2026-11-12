@@ -1,4 +1,4 @@
-"""Command-line entry point. Subcommands: map, run, show, new-bot."""
+"""Command-line entry point. Subcommands: map, run, show, view, new-bot."""
 
 import argparse
 import json
@@ -11,6 +11,7 @@ from spacetaxi.maps import MapError, load_map
 from spacetaxi.runner import BOTS_DIR, BotError, format_table, run
 from spacetaxi.sim import Rules
 from spacetaxi.show import ReplayError, frame, get_round, get_tick, load_replay, render
+from spacetaxi.viewer import build_html, make_server
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -49,6 +50,15 @@ def build_parser() -> argparse.ArgumentParser:
                           help="animate the round from its first tick to its last")
     show_cmd.add_argument("--fps", type=float, default=10, help="frames per second (default 10)")
     show_cmd.set_defaults(func=cmd_show)
+
+    view_cmd = commands.add_parser(
+        "view", help="watch a replay in the browser (writes an HTML file or serves it)")
+    view_cmd.add_argument("replay", help="a replay file written by run --replay")
+    view_cmd.add_argument("--out", metavar="FILE",
+                          help="write one self-contained HTML file instead of serving it")
+    view_cmd.add_argument("--port", type=int, default=8000,
+                          help="port to serve the page on (default 8000)")
+    view_cmd.set_defaults(func=cmd_view)
 
     new_bot_cmd = commands.add_parser("new-bot", help="write a starter bot (a copy of greedy)")
     new_bot_cmd.add_argument("path", help="the .py file to create; never overwritten")
@@ -146,6 +156,35 @@ def cmd_show(args: argparse.Namespace) -> int:
             time.sleep(delay)
     except KeyboardInterrupt:
         print()
+    return 0
+
+
+def cmd_view(args: argparse.Namespace) -> int:
+    try:
+        html = build_html(args.replay)
+    except ReplayError as exc:
+        print(f"spacetaxi view: error: {exc}", file=sys.stderr)
+        return 2
+    if args.out:
+        try:
+            Path(args.out).write_text(html, encoding="utf-8")
+        except OSError as exc:
+            print(f"spacetaxi view: error: {exc}", file=sys.stderr)
+            return 2
+        print(f"wrote {args.out}")
+        return 0
+    try:
+        server = make_server(html, args.port)
+    except OSError as exc:
+        print(f"spacetaxi view: error: cannot serve on port {args.port}: {exc}", file=sys.stderr)
+        return 2
+    print(f"serving the viewer at http://localhost:{args.port}/ (Ctrl-C stops)", flush=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print()
+    finally:
+        server.server_close()
     return 0
 
 
