@@ -26,8 +26,21 @@ uv run pytest
 uv run spacetaxi --help
 ```
 
-`spacetaxi` is the command-line entry point. Its subcommands (`map`, `run`, `show`, `new-bot`)
+`spacetaxi` is the command-line entry point. Its subcommands (`map`, `run`, `show`, `view`,
+`new-bot`)
 are added as the game grows; `spacetaxi <command> --help` describes each one.
+
+## Watch a replay in the browser
+
+```sh
+uv run spacetaxi run --map canyon --bots lander,greedy,lander,random --rounds 2 --replay r.jsonl
+uv run spacetaxi view r.jsonl --out replay.html   # one self-contained file, works via file://
+uv run spacetaxi view r.jsonl --port 8000         # or serve it at http://localhost:8000/
+```
+
+Space plays and pauses, `1`-`4` set 0.5x/1x/2x/4x; the bar has a scrub bar and a round selector.
+The page makes no external requests. Its browser tests (`tests/e2e/`) need Chromium once:
+`uv run playwright install chromium`; they skip without it.
 
 ## Write a bot
 

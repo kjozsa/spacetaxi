@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spacetaxi replay</title>
+<style>
+@font-face {
+  font-family: "Press Start 2P";
+  src: url(data:font/ttf;base64,/*FONT*/) format("truetype");
+}
+:root {
+  --bg: #04030b;
+  --panel: #0e0c1c;
+  --line: #2a2546;
+  --fg: #e9e6ff;
+  --muted: #9a94c4;
+  --accent: #ffd23f;
+  --font: "Press Start 2P", "Courier New", monospace;
+  color-scheme: dark;
+}
+html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: var(--fg); }
+#stage {
+  position: absolute; left: 0; top: 0; width: 1920px; height: 1080px;
+  transform-origin: 0 0; background: var(--bg); font-family: var(--font);
+}
+#stage canvas { position: absolute; left: 0; top: 0; display: block; }
+#bar {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 72px; box-sizing: border-box;
+  display: flex; gap: 14px; align-items: center; padding: 0 24px;
+  background: linear-gradient(#07050f, #120d2e); border-top: 2px solid #7a5cff;
+}
+#bar button, #bar select {
+  font: 16px var(--font); color: var(--fg); background: transparent;
+  border: 2px solid var(--line); padding: 10px 14px; cursor: pointer;
+}
+#bar select { background: var(--panel); }
+#bar button[aria-pressed="true"] { background: var(--accent); color: #120f00; border-color: var(--accent); }
+#bar button:focus-visible, #bar select:focus-visible, #scrub:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#play { min-width: 130px; }
+#scrub { flex: 1; accent-color: #7a5cff; height: 24px; }
+#tickLabel { font-size: 16px; color: var(--muted); min-width: 250px; text-align: right; font-variant-numeric: tabular-nums; }
+</style>
+<body>
+<div id="stage">
+  <canvas id="board" width="1920" height="1080" aria-label="Replay of a spacetaxi round"></canvas>
+  <div id="bar" role="group" aria-label="Playback">
+    <button id="play" title="play / pause (space)">PLAY</button>
+    <button data-speed="0.5" title="key 1">0.5&times;</button>
+    <button data-speed="1" title="key 2">1&times;</button>
+    <button data-speed="2" title="key 3">2&times;</button>
+    <button data-speed="4" title="key 4">4&times;</button>
+    <input id="scrub" type="range" min="0" max="0" step="1" value="0" aria-label="Tick">
+    <select id="round" aria-label="Round"></select>
+    <span id="tickLabel">TICK 0</span>
+  </div>
+</div>
+<script id="replay" type="application/json">/*DATA*/</script>
+<script>
+/*SCRIPT*/
+</script>
+</body>
+</html>
