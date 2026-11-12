@@ -72,6 +72,24 @@ def is_valid_move(move) -> bool:
     return True
 
 
+def clean_debug(debug) -> str | dict | None:
+    """A move's `debug` as docs/rules.md allows it: free text, or an object with an optional
+    `say` text and an optional `path` of `[x, y]` integer cells; None when there is none."""
+    if isinstance(debug, str):
+        return debug
+    if not isinstance(debug, dict):
+        return None
+    out = {}
+    if isinstance(debug.get("say"), str):
+        out["say"] = debug["say"]
+    path = debug.get("path")
+    if isinstance(path, (list, tuple)) and all(
+            isinstance(p, (list, tuple)) and len(p) == 2 and all(type(c) is int for c in p)
+            for p in path):
+        out["path"] = [[p[0], p[1]] for p in path]
+    return out
+
+
 def player_ids(names: list[str]) -> list[str]:
     """Taxi ids from bot names: the file stem, numbered `-1`, `-2`, ... when repeated."""
     stems = [Path(n).stem if n.endswith(".py") else Path(n).name for n in names]
@@ -128,7 +146,7 @@ class Player:
     def ask(self, state: dict, deadline_ms: int) -> dict:
         """The move to apply, as `{"ax", "ay", "coast", "debug"?}`. `coast` is true when the
         answer was missing, late or invalid, and the move is then `0,0`. `debug` is the
-        answer's debug text, when it has one."""
+        answer's `debug`, cleaned by `clean_debug`, when it has one."""
         start = time.perf_counter_ns()
         try:
             move = self.bot.move(state)
@@ -146,8 +164,10 @@ class Player:
             record = {**COAST, "coast": True}
         else:
             record = {"ax": move["ax"], "ay": move["ay"], "coast": False}
-        if isinstance(move, dict) and isinstance(move.get("debug"), str):
-            record["debug"] = move["debug"]
+        if isinstance(move, dict):
+            debug = clean_debug(move.get("debug"))
+            if debug is not None:
+                record["debug"] = debug
         return record
 
 

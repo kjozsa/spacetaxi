@@ -26,11 +26,13 @@ const splash = document.getElementById("splash");
 // CRT screen is on, the podium (top 3 names) when shown, a counter for every effect and every
 // sound, whether the sound is muted, how many taxis thrust right now (the hum's volume),
 // whether the INSERT COIN splash has been clicked (the round may play, the sound is on) and
-// whether the AudioContext has been set up.
+// whether the AudioContext has been set up, whether the debug overlay (key D) is on and the
+// text of each taxi's debug bubble ("" for none, in player order; all "" with the overlay off).
 const fx = { flames: 0, explosions: 0, dust: 0, pickups: 0, cash: 0, shakes: 0 };
 const sfx = { hum: 0, boom: 0, chime: 0, cash: 0, jingle: 0 };
 window.spacetaxi = { round: 0, tick: 0, fps: 0, scanlines: true, podium: null, fx, sfx,
-                     muted: false, started: false, audio: false, thrusting: 0 };
+                     muted: false, started: false, audio: false, thrusting: 0,
+                     overlay: false, bubbles: [] };
 
 let R = null;            // the current round, with its layout and static layer
 let tf = 0;              // position in the round: index into R.ticks plus a fraction
@@ -453,6 +455,52 @@ function drawPodium(tk) {
   ctx.textBaseline = "alphabetic";
 }
 
+// A move's `debug` (see docs/rules.md, `move`): free text, or an object with `say` and `path`.
+function debugText(d) {
+  if (typeof d === "string") return d;
+  return d && typeof d.say === "string" ? d.say : "";
+}
+function debugPath(d) {
+  return d && typeof d === "object" && Array.isArray(d.path) ? d.path : [];
+}
+
+// The debug overlay: each taxi's planned path as a dotted neon line from the taxi, and its
+// debug text in a bubble above its name, both in its colour. `at` holds the taxis' centres.
+function drawOverlay(tk, at) {
+  const C = R.C, k = C / 32;
+  const bubbles = R.data.players.map(() => "");
+  ctx.save();
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  for (const [p, x, y] of at) {
+    const d = tk.d ? tk.d[p] : null, path = debugPath(d), color = COLORS[p % COLORS.length];
+    if (path.length) {
+      ctx.strokeStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 12;
+      ctx.lineWidth = 4 * k; ctx.setLineDash([0, 10 * k]);
+      ctx.beginPath(); ctx.moveTo(x, y);
+      for (const [px, py] of path) ctx.lineTo(R.OX + px * C + C / 2, R.OY + py * C + C / 2);
+      ctx.stroke();
+      ctx.setLineDash([]); ctx.shadowBlur = 0;
+    }
+  }
+  ctx.font = `14px ${FONT}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (const [p, x, y] of at) {
+    const d = tk.d ? tk.d[p] : null, color = COLORS[p % COLORS.length];
+    const text = fitText(debugText(d).replace(/\s+/g, " ").trim(), 420);
+    if (!text) continue;
+    bubbles[p] = text;
+    const w = ctx.measureText(text).width + 24, h = 30, bx = Math.max(4, Math.min(SW - w - 4, x - w / 2));
+    const by = Math.max(HUD + 4, y - 18 * k - 30 - h);
+    ctx.fillStyle = "rgba(10,8,25,.92)"; ctx.strokeStyle = color; ctx.lineWidth = 2;
+    ctx.shadowColor = color; ctx.shadowBlur = 12;
+    ctx.beginPath(); ctx.roundRect(bx, by, w, h, 6); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x - 6, by + h); ctx.lineTo(x, by + h + 8); ctx.lineTo(x + 6, by + h);
+    ctx.fill(); ctx.shadowBlur = 0;
+    ctx.fillStyle = color; ctx.fillText(text, bx + w / 2, by + h / 2 + 1);
+  }
+  ctx.restore();
+  window.spacetaxi.bubbles = bubbles;
+}
+
 function draw(tnow, dt) {
   const ticks = R.ticks;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -468,6 +516,7 @@ function draw(tnow, dt) {
   }
   ctx.drawImage(R.static, R.OX, R.OY);
   window.spacetaxi.podium = null;
+  window.spacetaxi.bubbles = R.data.players.map(() => "");
   if (!ticks.length) return;
   const i = Math.floor(tf), f = tf - i, tk = ticks[i], C = R.C, k = C / 32;
   // About one flame particle per taxi every 16 ms of replay time.
@@ -479,17 +528,20 @@ function draw(tnow, dt) {
   }
 
   ctx.font = `14px ${FONT}`; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+  const at = [];   // [player, x, y] of every taxi on screen
   for (let p = 0; p < R.data.players.length; p++) {
     const pos = taxiPos(i, f, p); if (pos.state === CRASHED) continue;
     if (pos.vx) R.facing[p] = Math.sign(pos.vx);
     const color = COLORS[p % COLORS.length];
     const x = R.OX + pos.x * C + C / 2, y = R.OY + pos.y * C + C / 2 + 4 * k;
     if (flameStep) emitFlames(i, x, y, p, flameStep);
+    at.push([p, x, y]);
     drawTaxi(x, y, color, R.facing[p], pos.carry, 1.35 * k);
     ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 8;
     ctx.fillText(R.names[p], x, y - 18 * k - 6); ctx.shadowBlur = 0;
   }
   drawEffects(dt);
+  if (window.spacetaxi.overlay) drawOverlay(tk, at);
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   if (i === ticks.length - 1) drawPodium(tk);
@@ -565,6 +617,9 @@ window.addEventListener("keydown", e => {
   } else if (e.key === "m" || e.key === "M") {
     e.preventDefault();
     setMuted(!window.spacetaxi.muted);
+  } else if (e.key === "d" || e.key === "D") {
+    e.preventDefault();
+    window.spacetaxi.overlay = !window.spacetaxi.overlay;
   }
 });
 function setScanlines(on) {

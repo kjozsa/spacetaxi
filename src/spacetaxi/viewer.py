@@ -20,7 +20,9 @@ STATES = {"flying": 0, "landed": 1, "crashed": 2}
 
 def compact_tick(players: list[str], tick: dict) -> dict:
     """One tick for the page: `t` tick number, `x` one `[x, y, vx, state, carrying, money]` per
-    player (in `players` order), `p` waiting passengers as `[pad, spot_x]`, `e` the events."""
+    player (in `players` order), `p` waiting passengers as `[pad, spot_x]`, `e` the events,
+    `m` each player's move as `[ax, ay]` and `d` each player's `debug` (text, an object with
+    `say` and/or `path`, or null)."""
     by_id = {t["id"]: t for t in tick["taxis"]}
     moves = tick.get("moves") or {}
     taxis = []
@@ -38,6 +40,7 @@ def compact_tick(players: list[str], tick: dict) -> dict:
         "e": tick.get("events", []),
         "m": [[moves.get(name, {}).get("ax", 0), moves.get(name, {}).get("ay", 0)]
               for name in players],
+        "d": [moves.get(name, {}).get("debug") for name in players],
     }
 
 

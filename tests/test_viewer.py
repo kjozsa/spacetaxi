@@ -73,3 +73,14 @@ def test_server_serves_the_page():
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_replay_data_has_each_players_debug(tmp_path):
+    assert replay_data(str(STACKED))[0]["ticks"][0]["d"] == [None, None, None]  # no moves
+    bots = FIXTURES / "bots"
+    replay = tmp_path / "r.jsonl"
+    assert main(["run", "--bots", f"{bots / 'planner.py'},{bots / 'talker.py'},idle",
+                 "--rounds", "1", "--rule", "round_ticks=3", "--replay", str(replay)]) == 0
+    [rnd] = replay_data(str(replay))
+    for tick in rnd["ticks"]:
+        assert tick["d"] == [{"say": "hi", "path": [[5, 5], [6, 5]]}, "just text", None]
