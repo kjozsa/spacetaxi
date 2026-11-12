@@ -126,6 +126,9 @@ class Player:
                 self.stats.errors += 1
 
     def ask(self, state: dict, deadline_ms: int) -> dict:
+        """The move to apply, as `{"ax", "ay", "coast", "debug"?}`. `coast` is true when the
+        answer was missing, late or invalid, and the move is then `0,0`. `debug` is the
+        answer's debug text, when it has one."""
         start = time.perf_counter_ns()
         try:
             move = self.bot.move(state)
@@ -137,11 +140,15 @@ class Player:
         elapsed_ms = (time.perf_counter_ns() - start) // 1_000_000
         if elapsed_ms > deadline_ms:
             self.stats.timeouts += 1
-            return COAST
-        if failed:
+            record = {**COAST, "coast": True}
+        elif failed:
             self.stats.errors += 1
-            return COAST
-        return move
+            record = {**COAST, "coast": True}
+        else:
+            record = {"ax": move["ax"], "ay": move["ay"], "coast": False}
+        if isinstance(move, dict) and isinstance(move.get("debug"), str):
+            record["debug"] = move["debug"]
+        return record
 
 
 def run(
@@ -153,7 +160,8 @@ def run(
     replay=None,
 ) -> list[dict]:
     """Play `rounds` rounds and return one stats dict per bot. `replay` is an optional text
-    stream that receives one JSON line per `round_start`, `tick` and `round_end` message."""
+    stream that receives one JSON line per `round_start`, `tick` and `round_end` message; each
+    `tick` line also has the spectator-only `moves` applied in that tick."""
     rules = rules or Rules()
     ids = player_ids(bots)
     players = [Player(pid, load_bot(name)) for pid, name in zip(ids, bots)]
@@ -184,10 +192,11 @@ def run(
 
         for _ in range(rules.round_ticks):
             state = world.state()
-            emit(state)
-            moves = {}
+            records = {}
             for player in players:
-                moves[player.id] = player.ask(world.state(), rules.deadline_ms)
+                records[player.id] = player.ask(world.state(), rules.deadline_ms)
+            emit({**state, "moves": records})
+            moves = {pid: {"ax": r["ax"], "ay": r["ay"]} for pid, r in records.items()}
             for event in world.step(moves):
                 if event["type"] == "crash":
                     stats = players[ids.index(event["taxi"])].stats

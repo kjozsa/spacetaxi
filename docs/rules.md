@@ -277,6 +277,20 @@ happened in it. The bot answers with a `move` for tick `tick`.
 }
 ```
 
+A replay file (`spacetaxi run --replay`) writes each `tick` with one more, spectator-only
+field that bots never receive:
+
+- `moves`: the move applied to each taxi in this tick, keyed by taxi id:
+  `{"ax", "ay", "coast", "debug"?}`. `coast` is `true` when the bot's answer was missing, late
+  or invalid; the move then counts as `0,0`. `debug` is the answer's debug text, when it has one.
+
+```json
+"moves": {
+  "alice": {"ax": 0, "ay": -1, "coast": false, "debug": "climbing to cruise height"},
+  "bob": {"ax": 0, "ay": 0, "coast": true}
+}
+```
+
 Event shapes:
 
 ```json

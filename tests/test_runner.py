@@ -111,7 +111,10 @@ def test_replay_line_shapes(tmp_path, capsys):
 
         assert [t["tick"] for t in ticks] == list(range(1, 376))
         for t in ticks:
-            assert set(t) == {"type", "tick", "taxis", "passengers", "events"}
+            assert set(t) == {"type", "tick", "taxis", "passengers", "events", "moves"}
+            assert list(t["moves"]) == ["random", "idle"]
+            for m in t["moves"].values():
+                assert {"ax", "ay", "coast"} <= set(m) <= {"ax", "ay", "coast", "debug"}
             assert t["type"] == "tick"
             assert [taxi["id"] for taxi in t["taxis"]] == ["random", "idle"]
             for taxi in t["taxis"]:
@@ -189,3 +192,52 @@ def test_non_integer_rule_value_exits_2(capsys):
 def test_rule_without_equals_exits_2(capsys):
     assert main(["run", "--bots", "idle", "--rounds", "1", "--rule", "max_speed"]) == 2
     assert "max_speed" in capsys.readouterr().err
+
+
+def test_replay_moves_match_bot_answers(tmp_path):
+    scripted = tmp_path / "scripted.py"
+    scripted.write_text(
+        "def move(state):\n"
+        "    t = state['tick']\n"
+        "    if t % 3 == 0:\n"
+        "        return {'ax': 1, 'ay': -1, 'debug': f'tick {t}'}\n"
+        "    return {'ax': t % 2 * -1, 'ay': 0}\n"
+    )
+    raiser = tmp_path / "raiser.py"
+    raiser.write_text("def move(state):\n    raise RuntimeError('boom')\n")
+    out = tmp_path / "out.jsonl"
+    with out.open("w") as f:
+        run(load_map("classic"), [str(scripted), str(raiser)], rounds=1, seed=5,
+            rules=Rules(round_ticks=10), replay=f)
+    ticks = [m for m in map(json.loads, out.read_text().splitlines()) if m["type"] == "tick"]
+    assert len(ticks) == 10
+    for t in ticks:
+        n = t["tick"]
+        if n % 3 == 0:
+            expected = {"ax": 1, "ay": -1, "coast": False, "debug": f"tick {n}"}
+        else:
+            expected = {"ax": n % 2 * -1, "ay": 0, "coast": False}
+        assert t["moves"]["scripted"] == expected
+        assert t["moves"]["raiser"] == {"ax": 0, "ay": 0, "coast": True}
+
+
+def test_bots_never_see_moves(tmp_path):
+    log = tmp_path / "keys.txt"
+    spy = tmp_path / "spy.py"
+    spy.write_text(
+        f"LOG = {str(log)!r}\n"
+        "def move(state):\n"
+        "    with open(LOG, 'a') as f:\n"
+        "        f.write(','.join(sorted(state)) + '\\n')\n"
+        "    return {'ax': 0, 'ay': 0, 'debug': 'hi'}\n"
+    )
+    out = tmp_path / "out.jsonl"
+    with out.open("w") as f:
+        run(load_map("classic"), [str(spy), str(spy)], rounds=1, rules=Rules(round_ticks=5),
+            replay=f)
+    seen = log.read_text().splitlines()
+    assert len(seen) == 10
+    for keys in seen:
+        assert "moves" not in keys.split(",")
+    assert all("moves" in json.loads(line) for line in out.read_text().splitlines()
+               if json.loads(line)["type"] == "tick")
