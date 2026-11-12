@@ -4,8 +4,10 @@ from pathlib import Path
 
 import pytest
 
+from spacetaxi.bots.lander import Planner
 from spacetaxi.cli import main
 from spacetaxi.maps import Map, MapError, Pad, load_map, parse_map
+from spacetaxi.sim import Rules
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "maps"
 
@@ -118,3 +120,44 @@ def test_cli_map_bad_exits_2(fixture, where):
     assert result.returncode == 2
     assert "error" in result.stderr
     assert where in result.stderr
+
+
+def _pocket_pads(m: Map) -> list[str]:
+    """Pads with a wall over every tile within 4 rows above, so the only way in is sideways."""
+    return [
+        p.id
+        for p in m.pads
+        if all(
+            any(m.rows[y][x] == "#" for y in range(max(0, p.y - 4), p.y))
+            for x in range(p.x, p.x + p.len)
+        )
+    ]
+
+
+def test_canyon_map_loads():
+    m = load_map("canyon")
+    assert (m.width, m.height) == (40, 24)
+    assert 6 <= len(m.pads) <= 8
+    assert all(2 <= p.len <= 3 for p in m.pads)
+    assert len(m.spawns) >= 4
+    assert len(_pocket_pads(m)) >= 3
+    # a taxi landed on any tile can take off: the cell it rises into is air
+    for p in m.pads:
+        for x in range(p.x, p.x + p.len):
+            assert m.rows[p.y - 2][x] in ".S", (p.id, x)
+
+
+def test_canyon_every_pad_reachable_from_every_spawn_and_pad():
+    m = load_map("canyon")
+    rules = Rules().to_dict()
+    planner = Planner(m.rows, [p.to_dict() for p in m.pads], rules)
+    starts = [{"x": x, "y": y, "vx": 0, "vy": 0, "state": "flying"} for x, y in m.spawns]
+    starts += [
+        {"x": x, "y": p.y - 1, "vx": 0, "vy": 0, "state": "landed"}
+        for p in m.pads
+        for x in range(p.x, p.x + p.len)
+    ]
+    for taxi in starts:
+        for tick in range(rules["gravity_every"]):
+            for pad in m.pads:
+                assert planner.plan(taxi, tick, pad.id) is not None, (taxi, tick, pad.id)
