@@ -125,6 +125,7 @@ def test_waits_for_the_click(splash_page, shots):
     assert splash_page.locator("#splash").is_visible()
     assert "INSERT COIN" in splash_page.locator("#splash").inner_text()
     assert all(v == 0 for v in s["sfx"].values()) and all(v == 0 for v in s["fx"].values())
+    assert s["audio"] is False
     splash_page.screenshot(path=str(shots / "splash.png"))
 
 
@@ -282,7 +283,8 @@ def test_sound_counters_follow_the_replay_events(splash_page, replay):
                 for s, kind in SFX_EVENTS.items()}
     assert all(expected.values())
     splash_page.click("#splash")
-    assert splash_page.evaluate("typeof AudioContext") == "function"
+    splash_page.wait_for_function("window.spacetaxi.audio")  # the AudioContext is set up
+    assert splash_page.evaluate("window.spacetaxi.audio") is True
     splash_page.keyboard.press("4")
     wait_for_round_end(splash_page)
     sfx = state(splash_page)["sfx"]

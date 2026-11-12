@@ -24,17 +24,18 @@ const splash = document.getElementById("splash");
 
 // The debug hook: the round and tick on screen, frames drawn in the last second, whether the
 // CRT screen is on, the podium (top 3 names) when shown, a counter for every effect and every
-// sound, whether the sound is muted and whether the INSERT COIN splash has been clicked.
+// sound, whether the sound is muted, how many taxis thrust right now (the hum's volume),
+// whether the INSERT COIN splash has been clicked (the round may play, the sound is on) and
+// whether the AudioContext has been set up.
 const fx = { flames: 0, explosions: 0, dust: 0, pickups: 0, cash: 0, shakes: 0 };
 const sfx = { hum: 0, boom: 0, chime: 0, cash: 0, jingle: 0 };
 window.spacetaxi = { round: 0, tick: 0, fps: 0, scanlines: true, podium: null, fx, sfx,
-                     muted: false, started: false, thrusting: 0 };
+                     muted: false, started: false, audio: false, thrusting: 0 };
 
 let R = null;            // the current round, with its layout and static layer
 let tf = 0;              // position in the round: index into R.ticks plus a fraction
 let playing = false, speed = 1, last = 0;
 let fired = -1;          // the last tick index whose events have been turned into effects
-let started = false;     // the splash has been clicked: the round may play, the sound is on
 let parts = [], floaters = [], jumpers = [], rings = [], shake = 0;
 const MAX_PARTS = 2500;
 const frameTimes = [];
@@ -138,7 +139,7 @@ function fireEvents(i) {
     const { x, y } = cellCenter(k, i), color = COLORS[k % COLORS.length];
     if (ev.type === "crash") {
       fx.explosions++;
-      sound("boom", "boom");
+      sound("boom");
       burst(x, y, 70, color, 7 * k32, 50, 4 * k32, 0.12 * k32);
       burst(x, y, 30, "#ffffff", 4 * k32, 30, 3 * k32);
       burst(x, y, 20, "#ff8a3d", 3 * k32, 40, 5 * k32);
@@ -151,7 +152,7 @@ function fireEvents(i) {
                      life: 22, max: 22, color: "#9a94c4", size: 2.5 * k32, grav: 0 });
     } else if (ev.type === "pickup") {
       fx.pickups++;
-      sound("chime", "chime");
+      sound("chime");
       burst(x, y, 20, "#ffd23f", 3 * k32, 30, 2.5 * k32);
       // The passenger jumps in from the nearest waiting spot on the pad under the taxi.
       const t = R.ticks[i].x[k];
@@ -164,7 +165,7 @@ function fireEvents(i) {
       jumpers.push({ x0: from, x1: x, y, age: 0, life: 24 });
     } else if (ev.type === "deliver") {
       fx.cash++;
-      sound("cash", "cash");
+      sound("cash");
       floaters.push({ x, y: y - 10 * k32, text: `+$${ev.fare}`, life: 70, color: "#7dff5a" });
       burst(x, y, 26, "#7dff5a", 4 * k32, 40, 3 * k32, 0.05 * k32);
     } else if (ev.type === "respawn") {
@@ -173,11 +174,17 @@ function fireEvents(i) {
   }
 }
 
+// Whether taxi p thrusts between tick index i and i+1.
+function thrusts(i, p) {
+  const m = R.ticks[i].m ? R.ticks[i].m[p] : null;
+  return Boolean(m && (m[0] || m[1]));
+}
+
 // Thruster flames, opposite to the move taxi p plays between tick index i and i+1; `step` is
 // how many particles to emit this frame (a fraction is emitted with that probability).
 function emitFlames(i, x, y, p, step) {
-  const m = R.ticks[i].m ? R.ticks[i].m[p] : null;
-  if (!m || (!m[0] && !m[1])) return;
+  if (!thrusts(i, p)) return;
+  const m = R.ticks[i].m[p];
   const color = COLORS[p % COLORS.length], k32 = R.C / 32;
   const n = Math.floor(step) + (Math.random() < step - Math.floor(step) ? 1 : 0);
   for (let j = 0; j < n; j++) {
@@ -251,29 +258,25 @@ let audio = null, master = null, humGain = null, noiseBuf = null;
 const VOLUME = 0.5;
 
 function startAudio() {
-  const AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC) return;
-  try {
-    audio = new AC();
-    master = audio.createGain();
-    master.gain.value = window.spacetaxi.muted ? 0 : VOLUME;
-    master.connect(audio.destination);
-    noiseBuf = audio.createBuffer(1, audio.sampleRate, audio.sampleRate);
-    const d = noiseBuf.getChannelData(0);
-    for (let j = 0; j < d.length; j++) d[j] = Math.random() * 2 - 1;
-    // The thrust hum: one shared voice, two detuned low sawtooths through a lowpass, its
-    // volume set every frame from the number of thrusting taxis.
-    const lp = audio.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 260;
-    humGain = audio.createGain(); humGain.gain.value = 0;
-    lp.connect(humGain).connect(master);
-    for (const f of [55, 55.7]) {
-      const o = audio.createOscillator(); o.type = "sawtooth"; o.frequency.value = f;
-      o.connect(lp); o.start();
-    }
-    if (audio.state === "suspended") audio.resume().catch(() => {});
-  } catch (e) {
-    audio = null;
+  if (!window.AudioContext) return;
+  audio = new AudioContext();
+  master = audio.createGain();
+  master.gain.value = window.spacetaxi.muted ? 0 : VOLUME;
+  master.connect(audio.destination);
+  noiseBuf = audio.createBuffer(1, audio.sampleRate, audio.sampleRate);
+  const d = noiseBuf.getChannelData(0);
+  for (let j = 0; j < d.length; j++) d[j] = Math.random() * 2 - 1;
+  // The thrust hum: one shared voice, two detuned low sawtooths through a lowpass, its
+  // volume set every frame from the number of thrusting taxis.
+  const lp = audio.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 260;
+  humGain = audio.createGain(); humGain.gain.value = 0;
+  lp.connect(humGain).connect(master);
+  for (const f of [55, 55.7]) {
+    const o = audio.createOscillator(); o.type = "sawtooth"; o.frequency.value = f;
+    o.connect(lp); o.start();
   }
+  if (audio.state === "suspended") audio.resume();
+  window.spacetaxi.audio = true;
 }
 
 // A square/triangle/sawtooth note from `at` (seconds, audio time) for `dur`, optionally sliding.
@@ -303,20 +306,20 @@ const SOUNDS = {
     tone("triangle", 2093, t + 0.06, 0.5, 0.25); tone("square", 1568, t + 0.06, 0.12, 0.08);
     tone("triangle", 2637, t + 0.1, 0.45, 0.18);
   },
-  jingleStart(t) {
-    [523, 659, 784, 1047].forEach((f, j) => tone("square", f, t + j * 0.11, 0.14, 0.13));
-    tone("triangle", 1047, t + 0.44, 0.4, 0.15);
-  },
-  jingleEnd(t) {
-    [1047, 784, 659, 523].forEach((f, j) => tone("square", f, t + j * 0.14, 0.18, 0.13));
-    tone("triangle", 262, t + 0.56, 0.6, 0.2);
+  jingle(t, end) {   // a rising arpeggio at the start of a round, a falling one at its end
+    if (!end) {
+      [523, 659, 784, 1047].forEach((f, j) => tone("square", f, t + j * 0.11, 0.14, 0.13));
+      tone("triangle", 1047, t + 0.44, 0.4, 0.15);
+    } else {
+      [1047, 784, 659, 523].forEach((f, j) => tone("square", f, t + j * 0.14, 0.18, 0.13));
+      tone("triangle", 262, t + 0.56, 0.6, 0.2);
+    }
   },
 };
 
-function sound(name, counter) {
-  sfx[counter]++;
-  if (!audio || window.spacetaxi.muted) return;
-  try { SOUNDS[name](audio.currentTime + 0.01); } catch (e) { /* no sound is better than a crash */ }
+function sound(name, ...args) {
+  sfx[name]++;
+  if (audio && !window.spacetaxi.muted) SOUNDS[name](audio.currentTime + 0.01, ...args);
 }
 
 // The hum follows the number of taxis thrusting right now (none while paused).
@@ -505,16 +508,13 @@ function frame(now) {
   const end = Math.max(0, R.ticks.length - 1);
   if (playing) {
     tf += dt * speed / R.data.rules.tick_ms;
-    if (tf >= end) { tf = end; setPlaying(false); sound("jingleEnd", "jingle"); }
+    if (tf >= end) { tf = end; setPlaying(false); sound("jingle", true); }
   }
-  if (started && R.ticks.length) while (fired < Math.floor(tf)) fireEvents(++fired);
+  if (window.spacetaxi.started && R.ticks.length) while (fired < Math.floor(tf)) fireEvents(++fired);
   let thrusting = 0;
   if (playing && R.ticks.length) {
-    const tk = R.ticks[Math.floor(tf)];
-    tk.x.forEach((t, p) => {
-      const m = tk.m ? tk.m[p] : null;
-      if (t[3] !== CRASHED && m && (m[0] || m[1])) thrusting++;
-    });
+    const i = Math.floor(tf);
+    R.ticks[i].x.forEach((t, p) => { if (t[3] !== CRASHED && thrusts(i, p)) thrusting++; });
   }
   updateHum(thrusting);
   frameTimes.push(now);
@@ -533,9 +533,9 @@ function frame(now) {
 // The round does not play before the splash is clicked; playing from its first tick sounds the
 // start jingle.
 function setPlaying(on) {
-  if (on && !started) return;
+  if (on && !window.spacetaxi.started) return;
   if (on && tf >= R.ticks.length - 1) seek(0);
-  if (on && !playing && tf === 0) sound("jingleStart", "jingle");
+  if (on && !playing && tf === 0) sound("jingle", false);
   playing = on;
   playBtn.textContent = on ? "PAUSE" : "PLAY";
   playBtn.setAttribute("aria-pressed", String(on));
@@ -574,8 +574,7 @@ function setScanlines(on) {
 
 // INSERT COIN: the click turns the sound on and starts the round.
 splash.addEventListener("click", () => {
-  if (started) return;
-  started = true;
+  if (window.spacetaxi.started) return;
   window.spacetaxi.started = true;
   splash.hidden = true;
   startAudio();
@@ -592,6 +591,6 @@ setSpeed(1);
 const fontReady = document.fonts ? document.fonts.load(`16px ${FONT}`).catch(() => {}) : Promise.resolve();
 fontReady.then(() => {
   selectRound(0);
-  setPlaying(started);
+  setPlaying(window.spacetaxi.started);
   requestAnimationFrame(t => { last = t; frame(t); });
 });
