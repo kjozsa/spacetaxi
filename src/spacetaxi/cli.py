@@ -31,7 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_cmd.add_argument("--map", default="classic", help="bundled map name or map file path")
     run_cmd.add_argument(
         "--bots", required=True,
-        help="comma-separated bots: bundled names (idle, random, greedy, lander) or .py file paths",
+        help="comma-separated bots: bundled names (idle, random, greedy, pilot) or .py file paths",
     )
     run_cmd.add_argument("--rounds", type=int, default=10, help="rounds to play (default 10)")
     run_cmd.add_argument("--seed", type=int, default=0, help="seed for every round (default 0)")
@@ -228,11 +228,11 @@ NEW_BOT_HEADER = """\
 # The shape of every message, the physics and the scoring are in docs/rules.md.
 #
 # Evaluate it against the house bots (100 rounds, results as JSON):
-#   spacetaxi run --bots ./mybot.py,lander --rounds 100 --json
+#   spacetaxi run --bots ./mybot.py,pilot --rounds 100 --json
 # Add --map canyon for the harder map, --seed N for other rounds.
 #
 # Watch a round: record a replay, then play it back in the terminal (or show one tick):
-#   spacetaxi run --bots ./mybot.py,lander --rounds 1 --replay replay.jsonl
+#   spacetaxi run --bots ./mybot.py,pilot --rounds 1 --replay replay.jsonl
 #   spacetaxi show replay.jsonl --watch
 #   spacetaxi show replay.jsonl --tick 100
 # The `debug` text a move returns is free text for you; the simulation ignores it.

@@ -129,7 +129,7 @@ def test_replay_line_shapes(tmp_path, capsys):
             assert set(res) == {"id", "money", "deliveries", "crashes"}
 
 
-RULE_CMD = ["run", "--map", "classic", "--bots", "lander,random", "--rounds", "20", "--seed", "1",
+RULE_CMD = ["run", "--map", "classic", "--bots", "pilot,random", "--rounds", "20", "--seed", "1",
             "--json"]
 OVERRIDES = ["--rule", "max_speed=4", "--rule", "crash_cost=50"]
 

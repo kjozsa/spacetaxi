@@ -24,12 +24,11 @@ def test_greedy_delivers_and_earns_alone_on_classic(capsys):
     assert greedy["errors"] == 0 and greedy["timeouts"] == 0
 
 
-@pytest.mark.skip(reason="bots are rewritten for lander physics")
-def test_lander_beats_every_greedy(capsys):
-    results = run_json(capsys, "--map", "classic", "--bots", "lander,greedy,greedy,greedy",
+def test_pilot_beats_every_greedy(capsys):
+    results = run_json(capsys, "--map", "classic", "--bots", "pilot,greedy,greedy,greedy",
                        "--rounds", "100", "--seed", "1")
-    lander, greedies = results[0], results[1:]
-    assert all(lander["avg_money"] > g["avg_money"] for g in greedies)
+    pilot, greedies = results[0], results[1:]
+    assert all(pilot["avg_money"] > g["avg_money"] for g in greedies)
 
 
 def test_greedy_stays_small():
@@ -42,7 +41,7 @@ def test_new_bot_copy_plays_like_greedy(tmp_path, capsys):
     capsys.readouterr()
     text = path.read_text()
     assert text.endswith((BOTS_DIR / "greedy.py").read_text())
-    for needle in ("docs/rules.md", "spacetaxi run --bots ./mybot.py,lander --rounds 100 --json",
+    for needle in ("docs/rules.md", "spacetaxi run --bots ./mybot.py,pilot --rounds 100 --json",
                    "--replay", "spacetaxi show"):
         assert needle in text
 

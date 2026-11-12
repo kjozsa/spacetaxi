@@ -33,7 +33,7 @@ are added as the game grows; `spacetaxi <command> --help` describes each one.
 ## Watch a replay in the browser
 
 ```sh
-uv run spacetaxi run --map canyon --bots lander,greedy,lander,random --rounds 2 --replay r.jsonl
+uv run spacetaxi run --map canyon --bots pilot,greedy,pilot,random --rounds 2 --replay r.jsonl
 uv run spacetaxi view r.jsonl --out replay.html   # one self-contained file, works via file://
 uv run spacetaxi view r.jsonl --port 8000         # or serve it at http://localhost:8000/
 ```
@@ -61,7 +61,7 @@ live and list the `--rule` flags for what you set. Its physics is a port of the 
 
 ```sh
 uv run spacetaxi new-bot mybot.py
-uv run spacetaxi run --bots ./mybot.py,lander --rounds 100 --json
+uv run spacetaxi run --bots ./mybot.py,pilot --rounds 100 --json
 ```
 
 `new-bot` writes a copy of the `greedy` house bot with a header that explains the bot interface,
