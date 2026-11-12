@@ -147,6 +147,29 @@ def test_canyon_map_loads():
             assert m.rows[p.y - 2][x] in ".S", (p.id, x)
 
 
+def test_cavern_map_loads():
+    m = load_map("cavern")
+    assert (m.width, m.height) == (40, 24)
+    assert m.pads == (
+        Pad("A", 5, 6, 4),
+        Pad("B", 30, 6, 4),
+        Pad("C", 10, 13, 4),
+        Pad("D", 26, 13, 4),
+        Pad("E", 2, 21, 4),
+        Pad("F", 16, 21, 4),
+        Pad("G", 35, 21, 4),
+    )
+    assert len(m.spawns) == 3
+
+
+def test_cavern_cli_prints_pads_and_spawns(capsys):
+    assert main(["map", "cavern"]) == 0
+    out = capsys.readouterr().out
+    assert "spawns: 3" in out
+    for pad_id in "ABCDEFG":
+        assert f"\n{pad_id} " in out
+
+
 def test_canyon_every_pad_reachable_from_every_spawn_and_pad():
     m = load_map("canyon")
     rules = Rules().to_dict()
