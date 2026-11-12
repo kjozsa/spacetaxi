@@ -24,6 +24,14 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color:
   transform-origin: 0 0; background: var(--bg); font-family: var(--font);
 }
 #stage canvas { position: absolute; left: 0; top: 0; display: block; }
+/* The retro screen: CRT scanlines and a vignette, key C turns them off and on. */
+#crt {
+  position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; pointer-events: none;
+  background:
+    repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0 2px, rgba(0,0,0,.28) 2px 3px),
+    radial-gradient(ellipse at center, rgba(0,0,0,0) 60%, rgba(0,0,0,.55) 100%);
+}
+#crt[hidden] { display: none; }
 #bar {
   position: absolute; left: 0; right: 0; bottom: 0; height: 72px; box-sizing: border-box;
   display: flex; gap: 14px; align-items: center; padding: 0 24px;
@@ -43,6 +51,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color:
 <body>
 <div id="stage">
   <canvas id="board" width="1920" height="1080" aria-label="Replay of a spacetaxi round"></canvas>
+  <div id="crt" title="key C"></div>
   <div id="bar" role="group" aria-label="Playback">
     <button id="play" title="play / pause (space)">PLAY</button>
     <button data-speed="0.5" title="key 1">0.5&times;</button>

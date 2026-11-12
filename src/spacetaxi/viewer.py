@@ -22,6 +22,7 @@ def compact_tick(players: list[str], tick: dict) -> dict:
     """One tick for the page: `t` tick number, `x` one `[x, y, vx, state, carrying, money]` per
     player (in `players` order), `p` waiting passengers as `[pad, spot_x]`, `e` the events."""
     by_id = {t["id"]: t for t in tick["taxis"]}
+    moves = tick.get("moves") or {}
     taxis = []
     for name in players:
         t = by_id.get(name)
@@ -35,6 +36,8 @@ def compact_tick(players: list[str], tick: dict) -> dict:
         "x": taxis,
         "p": [[p["at"], p["spot_x"]] for p in tick.get("passengers", [])],
         "e": tick.get("events", []),
+        "m": [[moves.get(name, {}).get("ax", 0), moves.get(name, {}).get("ay", 0)]
+              for name in players],
     }
 
 
