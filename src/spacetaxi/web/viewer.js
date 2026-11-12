@@ -27,12 +27,15 @@ const splash = document.getElementById("splash");
 // sound, whether the sound is muted, how many taxis thrust right now (the hum's volume),
 // whether the INSERT COIN splash has been clicked (the round may play, the sound is on) and
 // whether the AudioContext has been set up, whether the debug overlay (key D) is on and the
-// text of each taxi's debug bubble ("" for none, in player order; all "" with the overlay off).
+// text of each taxi's debug bubble ("" for none, in player order; all "" with the overlay off),
+// each taxi's drawn centre on the 1920x1080 stage (`[x, y]`, null when crashed, in player
+// order), the texts of the destination tags drawn and the ids of the pads pulsing as the
+// destination of a carried passenger.
 const fx = { flames: 0, explosions: 0, dust: 0, pickups: 0, cash: 0, shakes: 0 };
 const sfx = { hum: 0, boom: 0, chime: 0, cash: 0, jingle: 0 };
 window.spacetaxi = { round: 0, tick: 0, fps: 0, scanlines: true, podium: null, fx, sfx,
                      muted: false, started: false, audio: false, thrusting: 0,
-                     overlay: false, bubbles: [] };
+                     overlay: false, bubbles: [], taxis: [], tags: [], pulsing: [] };
 
 let R = null;            // the current round, with its layout and static layer
 let tf = 0;              // position in the round: index into R.ticks plus a fraction
@@ -119,9 +122,10 @@ function seek(position) {
 }
 
 // ---------- effects ----------
+// A taxi's centre on the stage in tick index i: its position is in cells (see viewer.py).
 function cellCenter(k, i) {
   const t = R.ticks[i].x[k], C = R.C;
-  return { x: R.OX + t[0] * C + C / 2, y: R.OY + t[1] * C + C / 2 + 4 * (C / 32) };
+  return { x: R.OX + t[0] * C, y: R.OY + t[1] * C };
 }
 
 function burst(x, y, n, color, spd, life, size, grav = 0) {
@@ -157,12 +161,12 @@ function fireEvents(i) {
       sound("chime");
       burst(x, y, 20, "#ffd23f", 3 * k32, 30, 2.5 * k32);
       // The passenger jumps in from the nearest waiting spot on the pad under the taxi.
-      const t = R.ticks[i].x[k];
+      const t = R.ticks[i].x[k], cx = Math.floor(t[0]), cy = Math.floor(t[1]);
       let from = x, best = Infinity;
       for (const [at, spot] of i > 0 ? R.ticks[i - 1].p : []) {
         const pad = R.padById[at];
-        if (!pad || pad.y !== t[1] + 1 || Math.abs(spot - t[0]) >= best) continue;
-        best = Math.abs(spot - t[0]); from = R.OX + spot * R.C + R.C / 2;
+        if (!pad || pad.y !== cy + 1 || Math.abs(spot - cx) >= best) continue;
+        best = Math.abs(spot - cx); from = R.OX + spot * R.C + R.C / 2;
       }
       jumpers.push({ x0: from, x1: x, y, age: 0, life: 24 });
     } else if (ev.type === "deliver") {
@@ -346,7 +350,34 @@ function taxiPos(i, f, k) {
   const ticks = R.ticks, a = ticks[i].x[k], b = ticks[Math.min(i + 1, ticks.length - 1)].x[k];
   const jump = a[3] === CRASHED || b[3] === CRASHED;
   const g = jump ? 0 : f;
-  return { x: a[0] + (b[0] - a[0]) * g, y: a[1] + (b[1] - a[1]) * g, state: a[3], carry: a[4], vx: a[2] };
+  return { x: a[0] + (b[0] - a[0]) * g, y: a[1] + (b[1] - a[1]) * g, state: a[3], carry: a[4], vx: a[2],
+           to: a[6] };
+}
+
+// A destination tag: `text` in a dark box outlined in `color`, its baseline at y.
+function tag(x, y, text, color, k) {
+  const m = Math.max(1, k);
+  ctx.save();
+  ctx.font = `${Math.round(13 * m)}px ${FONT}`; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+  const w = ctx.measureText(text).width + 12 * m, h = 20 * m;
+  ctx.fillStyle = "rgba(7,6,15,.85)"; ctx.fillRect(x - w / 2, y - 14 * m, w, h);
+  ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.shadowColor = color; ctx.shadowBlur = 10;
+  ctx.strokeRect(x - w / 2, y - 14 * m, w, h);
+  ctx.fillStyle = color; ctx.fillText(text, x, y + 1);
+  ctx.restore();
+  window.spacetaxi.tags.push(text);
+}
+
+// The destination pad of a carried passenger: a green outline around the pad and the cell
+// above it, pulsing.
+function drawPulse(pad, tnow) {
+  const C = R.C, k = C / 32, a = 0.65 + 0.35 * Math.sin(tnow / 160);
+  const x = R.OX + pad.x * C - 4 * k, y = R.OY + (pad.y - 1) * C - 4 * k, w = pad.len * C + 8 * k, h = 2 * C + 8 * k;
+  ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = "rgba(125,255,90,.14)"; ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = "#7dff5a"; ctx.lineWidth = 3 * Math.max(1, k);
+  ctx.shadowColor = "#7dff5a"; ctx.shadowBlur = 24;
+  ctx.strokeRect(x, y, w, h);
+  ctx.restore();
 }
 
 function drawTaxi(x, y, color, facing, carry, scale) {
@@ -489,7 +520,7 @@ function drawOverlay(tk, at) {
     if (!text) continue;
     bubbles[p] = text;
     const w = ctx.measureText(text).width + 24, h = 30, bx = Math.max(4, Math.min(SW - w - 4, x - w / 2));
-    const by = Math.max(HUD + 4, y - 18 * k - 30 - h);
+    const by = Math.max(HUD + 4, y - 14 * k - 60 - h);   // above the name and the TO tag
     ctx.fillStyle = "rgba(10,8,25,.92)"; ctx.strokeStyle = color; ctx.lineWidth = 2;
     ctx.shadowColor = color; ctx.shadowBlur = 12;
     ctx.beginPath(); ctx.roundRect(bx, by, w, h, 6); ctx.fill(); ctx.stroke();
@@ -517,14 +548,24 @@ function draw(tnow, dt) {
   ctx.drawImage(R.static, R.OX, R.OY);
   window.spacetaxi.podium = null;
   window.spacetaxi.bubbles = R.data.players.map(() => "");
+  window.spacetaxi.taxis = R.data.players.map(() => null);
+  window.spacetaxi.tags = [];
+  window.spacetaxi.pulsing = [];
   if (!ticks.length) return;
   const i = Math.floor(tf), f = tf - i, tk = ticks[i], C = R.C, k = C / 32;
   // About one flame particle per taxi every 16 ms of replay time.
   const flameStep = playing ? Math.min(6, dt / 16) : 0;
 
-  for (const [at, spot] of tk.p) {
+  // The destination pad of every passenger carried right now pulses.
+  const pulsing = [...new Set(tk.x.filter(t => t[3] !== CRASHED && t[6]).map(t => t[6]))].sort();
+  for (const id of pulsing) if (R.padById[id]) drawPulse(R.padById[id], tnow);
+  window.spacetaxi.pulsing = pulsing;
+
+  for (const [at, spot, to, fare] of tk.p) {
     const pad = R.padById[at]; if (!pad) continue;
-    drawPassenger(R.OX + spot * C + C / 2, R.OY + pad.y * C - 3 * k, tnow, spot, k);
+    const x = R.OX + spot * C + C / 2, y = R.OY + pad.y * C - 3 * k;
+    drawPassenger(x, y, tnow, spot, k);
+    if (to != null) tag(x, y - 36 * k + Math.sin(tnow / 180 + spot) * 1.5 * k, `TO ${to} $${fare}`, "#ffd23f", k);
   }
 
   ctx.font = `14px ${FONT}`; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
@@ -533,12 +574,14 @@ function draw(tnow, dt) {
     const pos = taxiPos(i, f, p); if (pos.state === CRASHED) continue;
     if (pos.vx) R.facing[p] = Math.sign(pos.vx);
     const color = COLORS[p % COLORS.length];
-    const x = R.OX + pos.x * C + C / 2, y = R.OY + pos.y * C + C / 2 + 4 * k;
+    const x = R.OX + pos.x * C, y = R.OY + pos.y * C;
     if (flameStep) emitFlames(i, x, y, p, flameStep);
     at.push([p, x, y]);
-    drawTaxi(x, y, color, R.facing[p], pos.carry, 1.35 * k);
+    window.spacetaxi.taxis[p] = [x, y];
+    drawTaxi(x, y, color, R.facing[p], pos.carry, 1.15 * k);
     ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 8;
-    ctx.fillText(R.names[p], x, y - 18 * k - 6); ctx.shadowBlur = 0;
+    ctx.fillText(R.names[p], x, y - 14 * k - 6); ctx.shadowBlur = 0;
+    if (pos.to) tag(x, y - 14 * k - 34, `TO ${pos.to}`, "#7dff5a", k);
   }
   drawEffects(dt);
   if (window.spacetaxi.overlay) drawOverlay(tk, at);

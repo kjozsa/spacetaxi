@@ -18,25 +18,37 @@ WEB_DIR = Path(__file__).parent / "web"
 STATES = {"flying": 0, "landed": 1, "crashed": 2}
 
 
-def compact_tick(players: list[str], tick: dict) -> dict:
-    """One tick for the page: `t` tick number, `x` one `[x, y, vx, state, carrying, money]` per
-    player (in `players` order), `p` waiting passengers as `[pad, spot_x]`, `e` the events,
-    `m` each player's move as `[ax, ay]` and `d` each player's `debug` (text, an object with
-    `say` and/or `path`, or null)."""
+def compact_tick(players: list[str], tick: dict,
+                 units_per_cell: int = Rules().units_per_cell) -> dict:
+    """One tick for the page: `t` tick number, `x` one `[x, y, vx, state, carrying, money, to]`
+    per player (in `players` order), `p` waiting passengers as `[pad, spot_x, to, fare]`, `e`
+    the events, `m` each player's move as `[ax, ay]` and `d` each player's `debug` (text, an
+    object with `say` and/or `path`, or null).
+
+    A taxi's `x`, `y` is its fine position in cells (`fx / units_per_cell`, the centre of its
+    box), or the centre of its cell in replays from before fine positions; `to` is the
+    destination pad of the passenger it carries, or null. `to` and `fare` of a passenger are
+    null when the replay does not have them."""
     by_id = {t["id"]: t for t in tick["taxis"]}
     moves = tick.get("moves") or {}
     taxis = []
     for name in players:
         t = by_id.get(name)
         if t is None:
-            taxis.append([0, 0, 0, STATES["crashed"], 0, 0])
+            taxis.append([0.5, 0.5, 0, STATES["crashed"], 0, 0, None])
             continue
-        taxis.append([t["x"], t["y"], t["vx"], STATES.get(t["state"], 0),
-                      1 if t["passenger"] else 0, t["money"]])
+        if "fx" in t and "fy" in t:
+            x, y = t["fx"] / units_per_cell, t["fy"] / units_per_cell
+        else:
+            x, y = t["x"] + 0.5, t["y"] + 0.5
+        passenger = t["passenger"]
+        taxis.append([x, y, t["vx"], STATES.get(t["state"], 0), 1 if passenger else 0,
+                      t["money"], passenger.get("to") if passenger else None])
     return {
         "t": tick["tick"],
         "x": taxis,
-        "p": [[p["at"], p["spot_x"]] for p in tick.get("passengers", [])],
+        "p": [[p["at"], p["spot_x"], p.get("to"), p.get("fare")]
+              for p in tick.get("passengers", [])],
         "e": tick.get("events", []),
         "m": [[moves.get(name, {}).get("ax", 0), moves.get(name, {}).get("ay", 0)]
               for name in players],
@@ -51,13 +63,14 @@ def replay_data(path: str) -> list[dict]:
         start = rnd["start"]
         ticks = [rnd["ticks"][n] for n in sorted(rnd["ticks"])]
         players = start.get("players") or [t["id"] for t in (ticks[0]["taxis"] if ticks else [])]
+        rules = {**Rules().to_dict(), **start.get("rules", {})}
         rounds.append({
             "round": number,
             "map": start["map"],
             "pads": start["pads"],
             "players": players,
-            "rules": {**Rules().to_dict(), **start.get("rules", {})},
-            "ticks": [compact_tick(players, t) for t in ticks],
+            "rules": rules,
+            "ticks": [compact_tick(players, t, rules["units_per_cell"]) for t in ticks],
         })
     return rounds
 
