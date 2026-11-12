@@ -90,3 +90,9 @@ def test_watch_ctrl_c_exits_0(replay, capsys, monkeypatch):
     monkeypatch.setattr("spacetaxi.cli.time.sleep", interrupt)
     assert main(["show", replay, "--watch"]) == 0
     assert "round 1 tick 1\n" in capsys.readouterr().out
+
+
+def test_show_stacked_taxis(capsys):
+    replay = FIXTURES / "show" / "stacked.jsonl"
+    assert main(["show", str(replay), "--tick", "1"]) == 0
+    assert capsys.readouterr().out == (FIXTURES / "show" / "stacked_tick1.txt").read_text()
