@@ -27,7 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_cmd.add_argument("--map", default="classic", help="bundled map name or map file path")
     run_cmd.add_argument(
         "--bots", required=True,
-        help="comma-separated bots: bundled names (idle, random) or .py file paths",
+        help="comma-separated bots: bundled names (idle, random, lander) or .py file paths",
     )
     run_cmd.add_argument("--rounds", type=int, default=10, help="rounds to play (default 10)")
     run_cmd.add_argument("--seed", type=int, default=0, help="seed for every round (default 0)")
