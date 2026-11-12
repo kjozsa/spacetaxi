@@ -135,7 +135,7 @@ MAP.forEach((r, y) => [...r].forEach((c, x) => { if (c === "S") SPAWNS.push([x, 
 
 // ---------- rules: same names and units as the simulation on branch physics-lander ----------
 const DEFAULTS = { tick_ms: 100, gravity: 2, main_thrust: 4, side_thrust: 2, max_speed: 24,
-  safe_landing_vy: 6, safe_landing_vx: 3, taxi_half_width: 15, taxi_half_height: 12 };
+  safe_landing_vy: 8, safe_landing_vx: 3, taxi_half_width: 15, taxi_half_height: 12 };
 const DIALS = [
   ["gravity", "Gravity", 1, 5, "units/tick² pulling down, every tick"],
   ["main_thrust", "Main engine", 2, 10, "units/tick² up while ↑ is held"],

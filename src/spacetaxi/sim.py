@@ -24,7 +24,7 @@ class Rules:
     main_thrust: int = 4
     side_thrust: int = 2
     max_speed: int = 24
-    safe_landing_vy: int = 6
+    safe_landing_vy: int = 8
     safe_landing_vx: int = 3
     taxi_half_width: int = 15
     taxi_half_height: int = 12
