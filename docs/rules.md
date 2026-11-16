@@ -214,6 +214,13 @@ object, sent as one text frame. The bot's first message is `hello`; the server a
 `welcome`, then `queued` while the bot waits for a round. When the server sends an `error`, it
 closes the socket right after it.
 
+Spectators (the live viewer at `http://HOST:PORT/watch`) connect to `ws://HOST:PORT/spectate`
+and send nothing. The server first sends `{"type": "spectate", "arenas": 3}` (how many arenas
+can run side by side), then every arena's `round_start`, `tick` (with the spectator-only
+`moves`, as in a replay) and `round_end`, each with two more fields: `arena`, the arena's slot
+(1 to `arenas`), and `round`. A spectator that connects mid-round first gets each running
+arena's `round_start` and latest `tick`. A spectator that falls behind loses ticks.
+
 ## Messages
 
 Every message is one JSON object with a `type`. Server to bot: `welcome`, `queued`,

@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 import os
 import socket
 import subprocess
@@ -264,3 +265,77 @@ def test_cli_serve_bad_arguments():
     assert main(["serve", "--map", "nope"]) == 2
     assert main(["serve", "--rule", "tick_ms=0"]) == 2
     assert main(["serve", "--fill-seconds", "-1"]) == 2
+
+
+def test_spectator_gets_every_arena_with_moves_and_slots():
+    async def main():
+        server = make_server(fill_seconds=0.1)
+        srv, port = await start(server)
+        spec = await ws.connect(f"ws://127.0.0.1:{port}/spectate")
+        first = await recv(spec)
+        socks = [await join(port, f"bot{i}") for i in range(5)]
+        say = lambda tick: {"ax": 0, "ay": -1, "tick": tick, "debug": {"say": "up", "path": [[1, 1]]}}
+        rounds = asyncio.gather(*(play_round(s, say) for s in socks))
+        seen = []
+        while sum(m["type"] == "round_end" for m in seen) < 2:
+            seen.append(await recv(spec))
+        late = await ws.connect(f"ws://127.0.0.1:{port}/spectate")
+        catch_up = [await recv(late) for _ in range(1)]
+        await rounds
+        for s in socks + [spec, late]:
+            await s.close()
+        srv.close()
+        return first, seen, catch_up
+
+    first, seen, catch_up = asyncio.run(main())
+    assert first == {"type": "spectate", "arenas": 3}
+    starts = [m for m in seen if m["type"] == "round_start"]
+    slots = sorted((m["arena"], m["round"], len(m["players"])) for m in starts)
+    # rounds 1 and 2 side by side; the 4 of round 1 may start round 3 in the freed slot 1
+    assert (1, 1, 4) in slots and (2, 2, 1) in slots
+    assert all(arena == 1 for arena, rnd, _ in slots if rnd == 3)
+    starts = [m for m in starts if m["round"] in (1, 2)]
+    ticks = [m for m in seen if m["type"] == "tick" and m["round"] in (1, 2)]
+    assert {(m["arena"], m["round"]) for m in ticks} == {(1, 1), (2, 2)}
+    assert all(set(m["moves"]) == set(s["players"]) for m in ticks
+               for s in starts if s["round"] == m["round"])
+    debug = [mv.get("debug") for m in ticks for mv in m["moves"].values() if not mv["coast"]]
+    assert debug and all(d == {"say": "up", "path": [[1, 1]]} for d in debug)
+    for rnd in (1, 2):
+        nums = [m["tick"] for m in ticks if m["round"] == rnd]
+        assert nums == list(range(1, RULES.round_ticks + 1))
+    assert catch_up[0]["type"] == "spectate"
+
+
+def test_spectator_joining_mid_round_gets_its_start_and_latest_tick():
+    async def main():
+        server = make_server(fill_seconds=0)
+        srv, port = await start(server)
+        sock = await join(port, "solo")
+        rnd = asyncio.ensure_future(play_round(sock))
+        while not any(a.playing > 3 for a in server.arenas):
+            await asyncio.sleep(0.01)
+        spec = await ws.connect(f"ws://127.0.0.1:{port}/spectate")
+        got = [await recv(spec) for _ in range(4)]
+        await rnd
+        await sock.close()
+        await spec.close()
+        srv.close()
+        return got
+
+    got = asyncio.run(main())
+    assert [m["type"] for m in got] == ["spectate", "round_start", "tick", "tick"]
+    assert got[1]["arena"] == 1 and got[1]["players"] == ["solo"]
+    assert got[2]["tick"] >= 3 and got[3]["tick"] == got[2]["tick"] + 1
+    assert "moves" in got[2]
+
+
+def test_watch_page_is_the_live_viewer():
+    status, kind, body = make_server().http("/watch")
+    html = body.decode("utf-8")
+    assert status == 200 and kind.startswith("text/html")
+    assert 'data-mode="live"' in html and "/spectate" in html and "/*" + "MODE*/" not in html
+    assert not re.search(r"https?://", html)
+    data = json.loads(re.search(r'<script id="replay" type="application/json">(.*?)</script>',
+                                html, re.S).group(1))
+    assert data[0]["round"] == 0 and data[0]["ticks"] == [] and data[0]["map"]

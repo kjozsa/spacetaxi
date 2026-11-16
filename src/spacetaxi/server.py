@@ -11,7 +11,11 @@ played and arrives within `deadline_ms` of that tick being sent; anything else i
 taxi coasts. Every message to a bot goes through the bot's own outbox and sender task, so a slow
 or vanished bot never holds up its arena or the others; a bot whose outbox backs up loses ticks.
 
-`/` is the leaderboard page and `/leaderboard.json` its data. With `log`, each `round_end` is
+`/` is the leaderboard page and `/leaderboard.json` its data. `/watch` is the neon viewer fed
+live from `/spectate`: a spectator socket that gets `spectate` (the number of arena slots), then
+every arena's `round_start`, `tick` (in the replay's shape, with `moves`) and `round_end`, each
+with `arena` (its slot, 1 to `max_arenas`) and `round` added. A spectator that connects mid-round
+gets each running arena's `round_start` and latest `tick` first. Spectators send nothing. With `log`, each `round_end` is
 appended to that file as one JSON line (with each taxi's `ticks` and `late` count) and the
 leaderboard is rebuilt from it on start. With `replays`, each round is written to that directory
 as a replay that `spacetaxi view` opens.
@@ -28,6 +32,7 @@ from . import ws
 from .maps import Map
 from .runner import check_move, clean_debug
 from .sim import Rules, World
+from .viewer import build_live_html
 
 WEB_DIR = Path(__file__).parent / "web"
 
@@ -46,8 +51,9 @@ def dumps(message: dict) -> str:
 class Bot:
     """One connected bot: its socket, its outbox and where it is (queue or arena)."""
 
-    def __init__(self, name: str, sock: ws.WebSocket):
+    def __init__(self, name: str, sock: ws.WebSocket, backlog: int = OUTBOX_TICKS):
         self.name = name
+        self.backlog = backlog  # droppable messages are dropped at this many unsent
         self.sock = sock
         self.connected = True
         self.queued_at = 0  # perf_counter_ns when it joined the queue
@@ -59,7 +65,7 @@ class Bot:
     def send(self, message: dict | str, droppable: bool = False) -> None:
         """Queue a message for the bot without waiting. A `droppable` one (a tick) is dropped
         while the bot is behind."""
-        if not self.connected or (droppable and self.outbox.qsize() >= OUTBOX_TICKS):
+        if not self.connected or (droppable and self.outbox.qsize() >= self.backlog):
             return
         self.outbox.put_nowait(message if isinstance(message, str) else dumps(message))
 
@@ -114,9 +120,11 @@ class Leaderboard:
 class Arena:
     """One live round: its world, its bots and the moves for the tick being played."""
 
-    def __init__(self, server: "ArenaServer", number: int, bots: list[Bot], seed: int):
+    def __init__(self, server: "ArenaServer", number: int, bots: list[Bot], seed: int,
+                 slot: int = 1):
         self.server = server
         self.number = number
+        self.slot = slot  # which of the server's arenas, 1 to max_arenas
         self.bots = bots
         self.names = [b.name for b in bots]
         self.rules = server.rules
@@ -126,6 +134,7 @@ class Arena:
         self.records: dict[str, dict] = {}
         self.late = {name: 0 for name in self.names}
         self.replay = None
+        self.shown: dict[str, str] = {}  # the latest message of each type sent to spectators
         for bot in bots:
             bot.arena = self
 
@@ -145,8 +154,13 @@ class Arena:
         self.records[bot.name] = record
 
     def emit(self, message: dict) -> None:
+        """A message for the replay and the spectators (ticks with `moves`)."""
         if self.replay is not None:
             self.replay.write(dumps(message) + "\n")
+        text = dumps({**message, "arena": self.slot, "round": self.number})
+        self.shown[message["type"]] = text
+        for spectator in self.server.spectators:
+            spectator.send(text, droppable=message["type"] == "tick")
 
     def broadcast(self, message: dict, droppable: bool = False) -> None:
         text = dumps(message)
@@ -235,6 +249,8 @@ class ArenaServer:
         self.bots: dict[str, Bot] = {}  # connected bots by name
         self.queue: list[Bot] = []
         self.arenas: set[Arena] = set()
+        self.spectators: set[Bot] = set()
+        self.watch_page: bytes | None = None  # built on the first request
         self.tasks: set[asyncio.Task] = set()
         self.leaderboard = Leaderboard()
         self.rounds = 0
@@ -257,14 +273,18 @@ class ArenaServer:
         if path == "/leaderboard.json":
             data = {"leaderboard": self.leaderboard.table(), "rounds": self.rounds,
                     "connected": len(self.bots), "waiting": len(self.queue),
-                    "arenas": sorted([{"round": a.number, "players": a.names,
+                    "arenas": sorted([{"round": a.number, "arena": a.slot, "players": a.names,
                                        "tick": a.playing} for a in self.arenas],
                                      key=lambda a: a["round"])}
             return 200, "application/json", json.dumps(data).encode("utf-8")
+        if path == "/watch":
+            if self.watch_page is None:
+                self.watch_page = build_live_html(self.map, self.rules).encode("utf-8")
+            return 200, "text/html; charset=utf-8", self.watch_page
         return None
 
     async def start(self, host: str | None = None, port: int = 8000) -> asyncio.Server:
-        server = await ws.serve({"/bot": self.handle}, self.http, host, port)
+        server = await ws.serve({"/bot": self.handle, "/spectate": self.spectate}, self.http, host, port)
         self._spawn(self.scheduler())
         return server
 
@@ -298,7 +318,9 @@ class ArenaServer:
                 len(self.queue) >= ARENA_SIZE or now - self.queue[0].queued_at >= self.fill_ns):
             players, self.queue = self.queue[:ARENA_SIZE], self.queue[ARENA_SIZE:]
             self.rounds += 1
-            arena = Arena(self, self.rounds, players, self.rng.getrandbits(63))
+            taken = {a.slot for a in self.arenas}
+            slot = min(n for n in range(1, self.max_arenas + 1) if n not in taken)
+            arena = Arena(self, self.rounds, players, self.rng.getrandbits(63), slot)
             self.arenas.add(arena)
             self.say(f"round {arena.number}: {', '.join(arena.names)}")
             self._spawn(self.play(arena))
@@ -328,7 +350,23 @@ class ArenaServer:
                     self.enqueue(bot)
             self.fill()
 
-    # --- the WebSocket handler
+    # --- the WebSocket handlers
+
+    async def spectate(self, sock: ws.WebSocket, path: str) -> None:
+        """A spectator (the `/watch` page): every arena's messages, nothing expected back."""
+        spectator = Bot("", sock, backlog=OUTBOX_TICKS * self.max_arenas)
+        spectator.send({"type": "spectate", "arenas": self.max_arenas})
+        for arena in sorted(self.arenas, key=lambda a: a.number):
+            for kind in ("round_start", "tick", "round_end"):
+                if kind in arena.shown:
+                    spectator.send(arena.shown[kind])
+        self.spectators.add(spectator)
+        try:
+            while await sock.recv() is not None:
+                pass
+        finally:
+            self.spectators.discard(spectator)
+            await spectator.stop()
 
     async def error(self, sock: ws.WebSocket, code: str, message: str) -> None:
         try:
