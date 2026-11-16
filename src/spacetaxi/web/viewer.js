@@ -2,10 +2,14 @@
 // thruster flames, explosions, landing dust, pickup sparkles, cash popups, CRT screen, podium,
 // and chiptune sound effects synthesised with Web Audio (no audio files).
 // The replay is embedded in the page as JSON: one entry per round, see spacetaxi/viewer.py.
+// In live mode (`spacetaxi serve`'s /watch) the rounds come from the /spectate socket instead,
+// see the end of this file; the one embedded round is the arena's empty map.
 "use strict";
 
 const ROUNDS = JSON.parse(document.getElementById("replay").textContent);
+const LIVE = document.body.dataset.mode === "live";
 const SW = 1920, SH = 1080, HUD = 120, BAR = 72;
+const AW = LIVE ? SW - 420 : SW;   // the width the arena is laid out in, beside the leaderboard
 const FONT = "'Press Start 2P', monospace";
 const COLORS = ["#2ef2ff", "#ff3df0", "#ffd23f", "#7dff5a", "#ff8a3d", "#a98bff", "#ff5a6e", "#ffffff"];
 const SPEEDS = { "1": 0.5, "2": 1, "3": 2, "4": 4 };
@@ -63,8 +67,8 @@ window.addEventListener("resize", fit);
 // ---------- one round: layout and the static layer (walls, pads) ----------
 function prepareRound(data) {
   const map = data.map, H = map.length, W = map[0].length;
-  const C = Math.min(Math.floor(SW / W), Math.floor((SH - HUD - BAR) / H));
-  const OX = Math.floor((SW - W * C) / 2), OY = HUD + Math.floor((SH - HUD - BAR - H * C) / 2);
+  const C = Math.min(Math.floor(AW / W), Math.floor((SH - HUD - BAR) / H));
+  const OX = Math.floor((AW - W * C) / 2), OY = HUD + Math.floor((SH - HUD - BAR - H * C) / 2);
   const isWall = (x, y) => x < 0 || y < 0 || x >= W || y >= H || map[y][x] === "#";
   const st = document.createElement("canvas"); st.width = W * C; st.height = H * C;
   const s = st.getContext("2d");
@@ -443,7 +447,8 @@ function drawHud(i, tk) {
   const left = Math.max(0, rules.round_ticks - tk.t);
   const secs = Math.ceil(left * rules.tick_ms / 1000);
   ctx.font = `20px ${FONT}`; ctx.fillStyle = "#9a94c4";
-  ctx.fillText(`ROUND ${R.data.round}/${ROUNDS[ROUNDS.length - 1].round}`, 32, 44);
+  ctx.fillText(LIVE ? `ARENA ${R.data.arena} R${R.data.round}`
+                    : `ROUND ${R.data.round}/${ROUNDS[ROUNDS.length - 1].round}`, 32, 44);
   ctx.font = `40px ${FONT}`; ctx.fillStyle = "#ffffff"; ctx.shadowColor = "#2ef2ff"; ctx.shadowBlur = 12;
   ctx.fillText(`${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`, 32, 96); ctx.shadowBlur = 0;
 
@@ -469,7 +474,7 @@ function drawHud(i, tk) {
 function drawPodium(tk) {
   const order = R.data.players.map((_, k) => k).sort((a, b) => tk.x[b][5] - tk.x[a][5] || a - b).slice(0, 3);
   window.spacetaxi.podium = order.map(k => R.data.players[k]);
-  const cx = SW / 2, base = R.OY + R.H * R.C / 2 + 230, stepW = 300;
+  const cx = AW / 2, base = R.OY + R.H * R.C / 2 + 230, stepW = 300;
   ctx.fillStyle = "rgba(4,3,11,.82)"; ctx.fillRect(cx - 560, base - 520, 1120, 560);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.font = `48px ${FONT}`; ctx.fillStyle = "#ffd23f"; ctx.shadowColor = "#ffd23f"; ctx.shadowBlur = 24;
@@ -523,7 +528,7 @@ function drawOverlay(tk, at) {
     const text = fitText(debugText(d).replace(/\s+/g, " ").trim(), 420);
     if (!text) continue;
     bubbles[p] = text;
-    const w = ctx.measureText(text).width + 24, h = 30, bx = Math.max(4, Math.min(SW - w - 4, x - w / 2));
+    const w = ctx.measureText(text).width + 24, h = 30, bx = Math.max(4, Math.min(AW - w - 4, x - w / 2));
     const by = Math.max(HUD + 4, y - 14 * k - 60 - h);   // above the name and the TO tag
     ctx.fillStyle = "rgba(10,8,25,.92)"; ctx.strokeStyle = color; ctx.lineWidth = 2;
     ctx.shadowColor = color; ctx.shadowBlur = 12;
@@ -591,7 +596,7 @@ function draw(tnow, dt) {
   if (window.spacetaxi.overlay) drawOverlay(tk, at);
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  if (i === ticks.length - 1) drawPodium(tk);
+  if (i === ticks.length - 1 && (!LIVE || R.data.over)) drawPodium(tk);
   ctx.textAlign = "left";
   // The leaderboard counts up (or down) to the real money.
   R.shown = R.shown.map((v, p) => {
@@ -605,7 +610,8 @@ function draw(tnow, dt) {
 function frame(now) {
   const dt = Math.min(100, now - last); last = now;
   const end = Math.max(0, R.ticks.length - 1);
-  if (playing) {
+  if (LIVE) liveAdvance(dt, now);
+  else if (playing) {
     tf += dt * speed / R.data.rules.tick_ms;
     if (tf >= end) { tf = end; setPlaying(false); sound("jingle", true); }
   }
@@ -624,7 +630,8 @@ function frame(now) {
   window.spacetaxi.tick = tick;
   window.spacetaxi.fps = frameTimes.length;
   if (Number(scrub.value) !== Math.floor(tf)) scrub.value = String(Math.floor(tf));
-  tickLabel.textContent = `TICK ${tick}/${R.data.rules.round_ticks}`;
+  tickLabel.textContent = LIVE && !R.ticks.length ? "WAITING"
+    : `TICK ${tick}/${R.data.rules.round_ticks}`;
   requestAnimationFrame(frame);
 }
 
@@ -632,6 +639,7 @@ function frame(now) {
 // The round does not play before the splash is clicked; playing from its first tick sounds the
 // start jingle.
 function setPlaying(on) {
+  if (LIVE) return;   // a live round plays as it comes
   if (on && !window.spacetaxi.started) return;
   if (on && tf >= R.ticks.length - 1) seek(0);
   if (on && !playing && tf === 0) sound("jingle", false);
@@ -649,9 +657,13 @@ document.querySelectorAll("[data-speed]").forEach(b =>
   b.addEventListener("click", () => setSpeed(Number(b.dataset.speed))));
 soundBtn.addEventListener("click", () => setMuted(!window.spacetaxi.muted));
 scrub.addEventListener("input", () => seek(Number(scrub.value)));
-roundSel.addEventListener("change", () => { setPlaying(false); selectRound(Number(roundSel.value)); });
+roundSel.addEventListener("change", () => {
+  if (LIVE) { pickArena(roundSel.value); roundSel.blur(); return; }
+  setPlaying(false); selectRound(Number(roundSel.value));
+});
 window.addEventListener("keydown", e => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (LIVE && (e.key === " " || SPEEDS[e.key])) return;
   if (e.key === " ") {
     e.preventDefault();
     if (document.activeElement) document.activeElement.blur();
@@ -679,12 +691,12 @@ function setScanlines(on) {
 splash.addEventListener("click", () => {
   if (window.spacetaxi.started) return;
   window.spacetaxi.started = true;
-  splash.hidden = true;
+  splash.hidden = !LIVE || liveIdle(performance.now());
   startAudio();
   if (R) setPlaying(true);
 });
 
-ROUNDS.forEach((r, idx) => {
+if (!LIVE) ROUNDS.forEach((r, idx) => {
   const opt = document.createElement("option");
   opt.value = String(idx); opt.textContent = `ROUND ${r.round}`;
   roundSel.appendChild(opt);
@@ -693,7 +705,172 @@ fit();
 setSpeed(1);
 const fontReady = document.fonts ? document.fonts.load(`16px ${FONT}`).catch(() => {}) : Promise.resolve();
 fontReady.then(() => {
-  selectRound(0);
-  setPlaying(window.spacetaxi.started);
+  if (LIVE) startLive();
+  else {
+    selectRound(0);
+    setPlaying(window.spacetaxi.started);
+  }
   requestAnimationFrame(t => { last = t; frame(t); });
 });
+
+// ---------- live mode: the arenas of `spacetaxi serve`, from its /spectate socket ----------
+// Each arena slot (1 to the server's max) holds its latest round, in the replay's compact shape
+// (see compact_tick in viewer.py) plus `arena` and `over`. The picker shows one slot or follows
+// the arena whose round started last. The view stays a tick or two behind the newest tick, so
+// the taxis glide between ticks; it jumps ahead when it falls further behind.
+const LIVE_STATES = { flying: FLYING, landed: LANDED, crashed: CRASHED };
+const LIVE_LAG = 3;          // ticks behind the newest one before the view jumps ahead
+const SPLASH_AFTER = 5000;   // ms the podium stays up after the last round ends, before the splash
+const live = { slots: {}, running: new Set(), latest: 0, follow: true, slot: 0, arenas: 0,
+               idleSince: -Infinity, waiting: 0 };
+
+function compactTick(players, tick, upc) {
+  const byId = Object.fromEntries((tick.taxis || []).map(t => [t.id, t]));
+  const moves = tick.moves || {}, move = n => moves[n] || {};
+  return {
+    t: tick.tick,
+    x: players.map(n => {
+      const t = byId[n];
+      if (!t) return [0.5, 0.5, 0, CRASHED, 0, 0, null];
+      const fine = "fx" in t && "fy" in t, p = t.passenger;
+      return [fine ? t.fx / upc : t.x + 0.5, fine ? t.fy / upc : t.y + 0.5, t.vx,
+              LIVE_STATES[t.state] ?? FLYING, p ? 1 : 0, t.money, p ? (p.to ?? null) : null];
+    }),
+    p: (tick.passengers || []).map(p => [p.at, p.spot_x, p.to ?? null, p.fare ?? null]),
+    e: tick.events || [],
+    m: players.map(n => [move(n).ax || 0, move(n).ay || 0]),
+    d: players.map(n => move(n).debug ?? null),
+  };
+}
+
+function liveIdle(now) {
+  return live.running.size === 0 && now - live.idleSince > SPLASH_AFTER;
+}
+
+// Show arena slot `slot` (its latest round, or the empty map), a tick behind its newest tick.
+function showSlot(slot) {
+  live.slot = slot;
+  R = prepareRound(live.slots[slot] || ROUNDS[0]);
+  R.jingled = Boolean(R.data.over);
+  seek(Math.max(0, R.ticks.length - 2));
+  window.spacetaxi.arena = slot;
+}
+
+// The picker: "follow" or an arena slot number.
+function pickArena(value) {
+  live.follow = value === "follow";
+  window.spacetaxi.follow = live.follow;
+  showSlot(live.follow ? live.latest : Number(value));
+  roundSel.value = value;
+}
+
+function liveOptions() {
+  const value = live.follow ? "follow" : String(live.slot);
+  const opts = [["follow", "FOLLOW LATEST"]];
+  for (let k = 1; k <= live.arenas; k++) {
+    const d = live.slots[k];
+    opts.push([String(k), `ARENA ${k}` + (d && !d.over ? ` R${d.round}` : " IDLE")]);
+  }
+  roundSel.replaceChildren(...opts.map(([v, text]) => {
+    const o = document.createElement("option"); o.value = v; o.textContent = text; return o;
+  }));
+  roundSel.value = value;
+  window.spacetaxi.running = [...live.running].sort((a, b) => a - b);
+}
+
+function liveAdvance(dt, now) {
+  const end = R.ticks.length - 1;
+  splash.hidden = window.spacetaxi.started && !liveIdle(now);
+  window.spacetaxi.idle = live.running.size === 0;
+  if (end < 0) { playing = false; return; }
+  if (end - tf > LIVE_LAG) { tf = end - 1; fired = Math.floor(tf); }
+  tf = Math.min(end, tf + dt / R.data.rules.tick_ms);
+  if (!window.spacetaxi.started) fired = Math.floor(tf);   // no effects behind the splash
+  const over = Boolean(R.data.over) && tf >= end;
+  if (over && !R.jingled) { R.jingled = true; sound("jingle", true); }
+  playing = !over;
+}
+
+function onLive(msg) {
+  if (msg.type === "spectate") {
+    live.arenas = msg.arenas; live.slots = {}; live.running.clear();
+    liveOptions();
+    return;
+  }
+  const slot = msg.arena;
+  if (msg.type === "round_start") {
+    const rules = { ...ROUNDS[0].rules, ...(msg.rules || {}) };
+    live.slots[slot] = { round: msg.round, arena: slot, map: msg.map, pads: msg.pads,
+                         players: msg.players, rules, ticks: [], over: false };
+    live.running.add(slot);
+    live.latest = slot;
+    liveOptions();
+    if (live.follow || live.slot === slot) showSlot(slot);
+    return;
+  }
+  const d = live.slots[slot];
+  if (!d || d.round !== msg.round) return;
+  if (msg.type === "tick") {
+    if (d.ticks.length && d.ticks[d.ticks.length - 1].t >= msg.tick) return;
+    d.ticks.push(compactTick(d.players, msg, d.rules.units_per_cell));
+    if (msg.tick === 1 && R.data === d) sound("jingle", false);
+  } else if (msg.type === "round_end") {
+    d.over = true;
+    live.running.delete(slot);
+    if (!live.running.size) live.idleSince = performance.now();
+    liveOptions();
+    loadLeaderboard();
+  }
+}
+
+function connectLive() {
+  const sock = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/spectate`);
+  sock.onmessage = e => { try { onLive(JSON.parse(e.data)); } catch (err) { console.error(err); } };
+  sock.onopen = () => { window.spacetaxi.connected = true; };
+  sock.onclose = () => {
+    window.spacetaxi.connected = false;
+    live.running.clear();
+    setTimeout(connectLive, 1000);
+  };
+}
+
+// The leaderboard panel and the queue length on the splash, from /leaderboard.json: at every
+// round end and every few seconds.
+const lbRows = document.getElementById("lbRows"), lbSub = document.getElementById("lbSub");
+const queueEl = document.getElementById("queue");
+async function loadLeaderboard() {
+  let data;
+  try {
+    const res = await fetch("/leaderboard.json", { cache: "no-store" });
+    data = await res.json();
+  } catch (err) {
+    return;
+  }
+  live.waiting = data.waiting;
+  window.spacetaxi.waiting = data.waiting;
+  window.spacetaxi.leaderboard = data.leaderboard.map(r => r.name);
+  queueEl.textContent = `${data.waiting} ${data.waiting === 1 ? "BOT" : "BOTS"} IN THE QUEUE`;
+  lbSub.textContent = `${data.rounds} ROUNDS \u00b7 AVG $ PER ROUND`;
+  lbRows.replaceChildren(...data.leaderboard.slice(0, 14).map((r, n) => {
+    const li = document.createElement("li");
+    for (const [cls, text] of [["rank", `${n + 1}.`], ["name", r.name.toUpperCase()],
+                               ["avg", `${r.avg_money < 0 ? "-" : ""}$${Math.abs(Math.round(r.avg_money))}`]]) {
+      const span = document.createElement("span"); span.className = cls; span.textContent = text;
+      li.appendChild(span);
+    }
+    return li;
+  }));
+}
+
+function startLive() {
+  document.body.classList.add("live");
+  document.getElementById("lb").hidden = false;
+  splash.querySelector(".hint").textContent = "C SCREEN \u00b7 M OR SOUND BUTTON MUTE \u00b7 D DEBUG";
+  Object.assign(window.spacetaxi, { live: true, arena: 0, follow: true, running: [], idle: true,
+                                    waiting: 0, leaderboard: [], connected: false });
+  showSlot(0);
+  liveOptions();
+  connectLive();
+  loadLeaderboard();
+  setInterval(loadLeaderboard, 3000);
+}

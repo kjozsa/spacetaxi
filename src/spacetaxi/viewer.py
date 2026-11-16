@@ -77,13 +77,28 @@ def replay_data(path: str) -> list[dict]:
 
 def build_html(path: str) -> str:
     """The viewer page for the replay at `path`. Raises `ReplayError` for a bad replay."""
-    data = json.dumps(replay_data(path), separators=(",", ":"))
+    return page(replay_data(path), "replay")
+
+
+def build_live_html(game_map, rules: Rules) -> str:
+    """The live viewer page (`spacetaxi serve`'s `/watch`): it reads the rounds from the
+    `/spectate` socket. Its one embedded round is the arena's empty map, shown before any."""
+    blank = {"round": 0, "map": list(game_map.rows), "pads": [p.to_dict() for p in game_map.pads],
+             "players": [], "rules": rules.to_dict(), "ticks": []}
+    return page([blank], "live").replace("<title>Spacetaxi replay</title>",
+                                         "<title>Spacetaxi live</title>")
+
+
+def page(rounds: list[dict], mode: str) -> str:
+    """The viewer page with `rounds` embedded; `mode` is `replay` or `live`."""
+    data = json.dumps(rounds, separators=(",", ":"))
     # Inside <script> the JSON must not close the tag: escape every `<`.
     data = data.replace("<", "\\u003c")
     font = base64.b64encode((WEB_DIR / "PressStart2P-Regular.ttf").read_bytes()).decode("ascii")
     template = (WEB_DIR / "viewer.html").read_text(encoding="utf-8")
     script = (WEB_DIR / "viewer.js").read_text(encoding="utf-8")
     return (template
+            .replace("/*MODE*/", mode)
             .replace("/*FONT*/", font)
             .replace("/*SCRIPT*/", script)
             .replace("/*DATA*/", data))

@@ -84,6 +84,10 @@ the round ends. `/` is the leaderboard (`/leaderboard.json` its data); with `--l
 results are appended as a JSON line and the leaderboard is rebuilt from it on restart; with
 `--replays` each round is written as a replay for `spacetaxi view`.
 
+`/watch` is the neon viewer, live: put it on the projector. It follows the arena whose round
+started last, or the one picked at the bottom right, with the leaderboard beside it; between
+rounds it shows the INSERT COIN splash with the queue length. Click once to start the sound.
+
 ## Shortcuts (fish)
 
 ```fish

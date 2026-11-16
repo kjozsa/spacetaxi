@@ -66,17 +66,42 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color:
 @keyframes blink { to { opacity: .25; } }
 @media (prefers-reduced-motion: reduce) { #splash .coin { animation: none; } }
 #scrub { flex: 1; accent-color: #7a5cff; height: 24px; }
+/* Live mode (`spacetaxi serve`'s /watch): no playback controls, a leaderboard beside the arena. */
+body.live #play, body.live [data-speed], body.live #scrub { display: none; }
+body.live #bar { justify-content: flex-end; }
+#splash .queue { font-size: 28px; color: #7dff5a; text-shadow: 0 0 10px #7dff5a; }
+#splash .queue:empty { display: none; }
+#lb {
+  position: absolute; right: 0; top: 120px; bottom: 72px; width: 420px; box-sizing: border-box;
+  padding: 28px 24px; background: rgba(7,5,15,.78); border-left: 2px solid #7a5cff;
+  font-family: var(--font); overflow: hidden;
+}
+#lb[hidden] { display: none; }
+#lb h2 { margin: 0 0 8px; font-size: 22px; font-weight: normal; color: #ffd23f; text-shadow: 0 0 10px #ffd23f; }
+#lb .sub { font-size: 12px; color: var(--muted); margin-bottom: 24px; }
+#lb ol { list-style: none; margin: 0; padding: 0; }
+#lb li { display: flex; gap: 12px; font-size: 16px; line-height: 1; padding: 11px 0; border-bottom: 1px solid var(--line); }
+#lb li .rank { color: var(--muted); min-width: 36px; }
+#lb li .name { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #2ef2ff; }
+#lb li .avg { color: #ffffff; font-variant-numeric: tabular-nums; }
+#lb li:first-child .name { color: #ffd23f; }
 #tickLabel { font-size: 16px; color: var(--muted); min-width: 250px; text-align: right; font-variant-numeric: tabular-nums; }
 </style>
-<body>
+<body data-mode="/*MODE*/">
 <div id="stage">
   <canvas id="board" width="1920" height="1080" aria-label="Replay of a spacetaxi round"></canvas>
   <div id="crt" title="key C"></div>
   <button id="splash" aria-label="Insert coin: click to start">
     <span class="title">SPACETAXI</span>
     <span class="coin">INSERT COIN &mdash; CLICK TO START</span>
+    <span class="queue" id="queue"></span>
     <span class="hint">SPACE PLAY/PAUSE &middot; 1-4 SPEED &middot; C SCREEN &middot; M OR SOUND BUTTON MUTE &middot; D DEBUG</span>
   </button>
+  <aside id="lb" hidden aria-label="Leaderboard">
+    <h2>LEADERBOARD</h2>
+    <div class="sub" id="lbSub">AVG $ PER ROUND</div>
+    <ol id="lbRows"></ol>
+  </aside>
   <div id="bar" role="group" aria-label="Playback">
     <button id="play" title="play / pause (space)">PLAY</button>
     <button data-speed="0.5" title="key 1">0.5&times;</button>
@@ -85,7 +110,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color:
     <button data-speed="4" title="key 4">4&times;</button>
     <button id="sound" title="sound on / off (key M)" aria-pressed="true">SOUND ON</button>
     <input id="scrub" type="range" min="0" max="0" step="1" value="0" aria-label="Tick">
-    <select id="round" aria-label="Round"></select>
+    <select id="round" aria-label="Round or arena"></select>
     <span id="tickLabel">TICK 0</span>
   </div>
 </div>
