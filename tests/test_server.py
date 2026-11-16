@@ -294,7 +294,7 @@ def test_log_rebuilds_the_leaderboard_on_restart(tmp_path):
     assert {r["name"] for r in after["leaderboard"]} == {"a", "b", "c"}
     row = next(r for r in after["leaderboard"] if r["name"] == "c")
     assert set(row) == {"name", "rounds", "total_money", "avg_money", "deliveries", "crashes",
-                        "late_pct"}
+                        "late_pct", "human"}
     assert row["rounds"] == 1 and row["late_pct"] == 100.0
     status, ctype, body = restarted.http("/")
     assert status == 200 and b"leaderboard.json" in body
@@ -310,9 +310,9 @@ def test_leaderboard_totals_and_order():
                             "ticks": 10, "late": 3}]})
     assert board.table() == [
         {"name": "b", "rounds": 1, "total_money": 300, "avg_money": 300.0, "deliveries": 4,
-         "crashes": 0, "late_pct": 0.0},
+         "crashes": 0, "late_pct": 0.0, "human": False},
         {"name": "a", "rounds": 2, "total_money": 150, "avg_money": 75.0, "deliveries": 3,
-         "crashes": 1, "late_pct": 20.0},
+         "crashes": 1, "late_pct": 20.0, "human": False},
     ]
 
 
@@ -419,3 +419,51 @@ def test_watch_page_is_the_live_viewer():
     data = json.loads(re.search(r'<script id="replay" type="application/json">(.*?)</script>',
                                 html, re.S).group(1))
     assert data[0]["round"] == 0 and data[0]["ticks"] == [] and data[0]["map"]
+
+
+def test_a_human_client_is_marked_on_the_leaderboard_in_the_log_and_to_spectators(tmp_path):
+    log = tmp_path / "results.jsonl"
+
+    async def main():
+        server = make_server(fill_seconds=0.1, log=log)
+        srv, port = await start(server)
+        spec = await ws.connect(f"ws://127.0.0.1:{port}/spectate")
+        await recv(spec)
+        human = await ws.connect(f"ws://127.0.0.1:{port}/bot")
+        await human.send(json.dumps({"type": "hello", "name": "me", "protocol": 1,
+                                     "client": "human"}))
+        bot = await join(port, "bot")
+        seen = await asyncio.gather(play_round(human), play_round(bot))
+        start_msg = None
+        while start_msg is None:
+            msg = await recv(spec)
+            if msg["type"] == "round_start":
+                start_msg = msg
+        for s in (human, bot, spec):
+            await s.close()
+        srv.close()
+        return seen, start_msg, json.loads(server.http("/leaderboard.json")[2])
+
+    seen, start_msg, board = asyncio.run(main())
+    # the human plays as any bot: same messages, no humans field on its round_start
+    assert seen[0]["start"]["players"] == seen[1]["start"]["players"]
+    assert "humans" not in seen[0]["start"]
+    assert start_msg["humans"] == ["me"]
+    rows = {r["name"]: r for r in board["leaderboard"]}
+    assert rows["me"]["human"] is True and rows["bot"]["human"] is False
+    [record] = [json.loads(line) for line in log.read_text().splitlines()]
+    flags = {r["id"]: r.get("human") for r in record["results"]}
+    assert flags == {"me": True, "bot": None}
+    restarted = make_server(log=log)
+    rows = {r["name"]: r for r in json.loads(restarted.http("/leaderboard.json")[2])["leaderboard"]}
+    assert rows["me"]["human"] is True and rows["bot"]["human"] is False
+
+
+def test_fly_page_is_the_viewer_in_fly_mode_without_external_requests():
+    status, kind, body = make_server().http("/fly")
+    html = body.decode("utf-8")
+    assert status == 200 and kind.startswith("text/html")
+    assert 'data-mode="fly"' in html and "/bot" in html and '"human"' in html
+    assert 'id="join"' in html and 'id="leave"' in html and 'id="touch"' in html
+    assert not re.search(r"https?://", html)
+    assert "url(data:font/ttf;base64," in html

@@ -15,6 +15,8 @@
   th:nth-child(2), td:nth-child(2) { text-align: left; }
   th { color: #9aa3cc; font-weight: normal; }
   td.neg { color: #ff7a7a; }
+  .human { font-size: 14px; color: #0b0e1a; background: #e8ecff; border-radius: 4px;
+           padding: 1px 6px; vertical-align: middle; }
 </style>
 </head>
 <body>
@@ -43,6 +45,11 @@ function render(data) {
     for (const v of [i + 1, ...COLS.map(c => r[c])]) {
       const td = document.createElement("td");
       td.textContent = v;
+      if (v === r.name && r.human) {
+        const tag = document.createElement("span");
+        tag.className = "human"; tag.textContent = "human";
+        td.append(" ", tag);
+      }
       if (typeof v === "number" && v < 0) td.className = "neg";
       tr.appendChild(td);
     }

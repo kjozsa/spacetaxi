@@ -362,7 +362,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
         print(f"arena on {args.map}: tick_ms={rules.tick_ms} deadline_ms={rules.deadline_ms} "
               f"round_ticks={rules.round_ticks}, waves every {args.fill_seconds:g} s after the last")
         for host in lan_addresses() or ["localhost"]:
-            print(f"  leaderboard http://{host}:{args.port}/   bots ws://{host}:{args.port}/bot")
+            print(f"  leaderboard http://{host}:{args.port}/   bots ws://{host}:{args.port}/bot   "
+                  f"fly by hand http://{host}:{args.port}/fly")
         print("Ctrl-C stops", flush=True)
         async with server:
             await server.serve_forever()

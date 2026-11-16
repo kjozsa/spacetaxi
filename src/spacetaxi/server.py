@@ -16,7 +16,12 @@ played and arrives within `deadline_ms` of that tick being sent; anything else i
 taxi coasts. Every message to a bot goes through the bot's own outbox and sender task, so a slow
 or vanished bot never holds up its arena or the others; a bot whose outbox backs up loses ticks.
 
-`/` is the leaderboard page and `/leaderboard.json` its data. `/watch` is the neon viewer fed
+A client whose `hello` has `"client": "human"` is a person flying by hand (the `/fly` page);
+the server treats it as any bot, but marks it as human on the leaderboard (`human: true`), in the
+log and to spectators (`humans` in `round_start`).
+
+`/` is the leaderboard page and `/leaderboard.json` its data. `/fly` is the page to fly in the
+arena by hand: a `/bot` client in the browser with the neon viewer. `/watch` is the neon viewer fed
 live from `/spectate`: a spectator socket that gets `spectate` (the number of arena slots), then
 every arena's `round_start`, `tick` (in the replay's shape, with `moves`) and `round_end`, each
 with `arena` (its slot, 1 to `max_arenas`) and `round` added. A spectator that connects mid-round
@@ -38,7 +43,7 @@ from . import ws
 from .maps import Map
 from .runner import check_move, clean_debug
 from .sim import Rules, World
-from .viewer import build_live_html
+from .viewer import build_fly_html, build_live_html
 
 WEB_DIR = Path(__file__).parent / "web"
 
@@ -68,8 +73,10 @@ def dumps(message: dict) -> str:
 class Bot:
     """One connected bot: its socket, its outbox and where it is (queue or arena)."""
 
-    def __init__(self, name: str, sock: ws.WebSocket, backlog: int = OUTBOX_TICKS):
+    def __init__(self, name: str, sock: ws.WebSocket, backlog: int = OUTBOX_TICKS,
+                 human: bool = False):
         self.name = name
+        self.human = human  # a person flying by hand (`"client": "human"` in hello)
         self.backlog = backlog  # droppable messages are dropped at this many unsent
         self.sock = sock
         self.connected = True
@@ -113,6 +120,8 @@ class Leaderboard:
             row = self.rows.setdefault(r["id"], {"rounds": 0, "money": 0, "deliveries": 0,
                                                  "crashes": 0, "ticks": 0, "late": 0})
             row["rounds"] += 1
+            if r.get("human"):
+                row["human"] = True
             for key in ("money", "deliveries", "crashes", "ticks", "late"):
                 row[key] += r.get(key, 0)
 
@@ -128,6 +137,7 @@ class Leaderboard:
                 "deliveries": row["deliveries"],
                 "crashes": row["crashes"],
                 "late_pct": round(100 * row["late"] / row["ticks"], 1) if row["ticks"] else 0.0,
+                "human": row.get("human", False),
             })
         out.sort(key=lambda r: (-r["avg_money"], -r["total_money"], r["name"]))
         return out
@@ -144,6 +154,7 @@ class Arena:
         self.slot = slot  # which of the server's arenas, 1 to max_arenas
         self.bots = bots
         self.names = [b.name for b in bots]
+        self.humans = [b.name for b in bots if b.human]
         self.rules = server.rules
         self.world = World(server.map, self.rules, seed=seed, players=self.names)
         self.playing = 0  # the tick whose moves are being collected, 0 before the first
@@ -214,7 +225,7 @@ class Arena:
             path = self.server.replays / f"round-{self.number:05d}.jsonl"
             self.replay = open(path, "w", encoding="utf-8")
         try:
-            self.emit(round_start)
+            self.emit({**round_start, "humans": list(self.humans)})
             self.broadcast(round_start)
             tick_ns = rules.tick_ms * 1_000_000
             if t0 is None:
@@ -247,7 +258,8 @@ class Arena:
             "round": self.number,
             "wave": self.wave,
             "time": time.strftime("%Y-%m-%dT%H:%M:%S"),
-            "results": [{**r, "ticks": rules.round_ticks, "late": self.late[r["id"]]}
+            "results": [{**r, "ticks": rules.round_ticks, "late": self.late[r["id"]],
+                         **({"human": True} if r["id"] in self.humans else {})}
                         for r in results],
         }
 
@@ -271,6 +283,7 @@ class ArenaServer:
         self.arenas: set[Arena] = set()
         self.spectators: set[Bot] = set()
         self.watch_page: bytes | None = None  # built on the first request
+        self.fly_page: bytes | None = None
         self.tasks: set[asyncio.Task] = set()
         self.leaderboard = Leaderboard()
         self.rounds = 0
@@ -307,6 +320,10 @@ class ArenaServer:
             if self.watch_page is None:
                 self.watch_page = build_live_html(self.map, self.rules).encode("utf-8")
             return 200, "text/html; charset=utf-8", self.watch_page
+        if path == "/fly":
+            if self.fly_page is None:
+                self.fly_page = build_fly_html(self.map, self.rules).encode("utf-8")
+            return 200, "text/html; charset=utf-8", self.fly_page
         return None
 
     async def start(self, host: str | None = None, port: int = 8000) -> asyncio.Server:
@@ -480,9 +497,10 @@ class ArenaServer:
                                     f"this server speaks protocol {PROTOCOL}")
         if name in self.bots:
             return await self.error(sock, "name_taken", f"name {name!r} is already connected")
-        bot = Bot(name, sock)
+        human = hello.get("client") == "human"
+        bot = Bot(name, sock, human=human)
         self.bots[name] = bot
-        self.say(f"+ {name} joined from {sock.peer}")
+        self.say(f"+ {name} joined from {sock.peer}" + (" (human)" if human else ""))
         bot.send({"type": "welcome", "id": name, "rules": self.rules.to_dict()})
         self.enqueue(bot)
         try:

@@ -3,13 +3,17 @@
 // and chiptune sound effects synthesised with Web Audio (no audio files).
 // The replay is embedded in the page as JSON: one entry per round, see spacetaxi/viewer.py.
 // In live mode (`spacetaxi serve`'s /watch) the rounds come from the /spectate socket instead,
-// see the end of this file; the one embedded round is the arena's empty map.
+// see the end of this file; the one embedded round is the arena's empty map. In fly mode
+// (/fly) the page is a /bot client itself: a person flies one taxi with the arrow keys or the
+// touch buttons, and its rounds come from the bot socket.
 "use strict";
 
 const ROUNDS = JSON.parse(document.getElementById("replay").textContent);
-const LIVE = document.body.dataset.mode === "live";
+const MODE = document.body.dataset.mode;
+const FLY = MODE === "fly";
+const LIVE = MODE === "live" || FLY;
 const SW = 1920, SH = 1080, HUD = 120, BAR = 72;
-const AW = LIVE ? SW - 420 : SW;   // the width the arena is laid out in, beside the leaderboard
+const AW = MODE === "live" ? SW - 420 : SW;   // the width the arena is laid out in, beside the leaderboard
 const FONT = "'Press Start 2P', monospace";
 const COLORS = ["#2ef2ff", "#ff3df0", "#ffd23f", "#7dff5a", "#ff8a3d", "#a98bff", "#ff5a6e", "#ffffff"];
 const SPEEDS = { "1": 0.5, "2": 1, "3": 2, "4": 4 };
@@ -35,12 +39,14 @@ const splash = document.getElementById("splash");
 // text of each taxi's debug bubble ("" for none, in player order; all "" with the overlay off),
 // each taxi's drawn centre on the 1920x1080 stage (`[x, y]`, null when crashed, in player
 // order), the texts of the destination tags drawn and the ids of the pads pulsing as the
-// destination of a carried passenger.
+// destination of a carried passenger, the human players of the round and the players whose
+// taxi has the HUMAN tag or (fly mode) the YOU marker this frame.
 const fx = { flames: 0, explosions: 0, dust: 0, pickups: 0, cash: 0, shakes: 0 };
 const sfx = { hum: 0, boom: 0, chime: 0, cash: 0, jingle: 0 };
 window.spacetaxi = { round: 0, tick: 0, fps: 0, scanlines: true, podium: null, fx, sfx,
                      muted: false, started: false, audio: false, thrusting: 0,
-                     overlay: false, bubbles: [], taxis: [], tags: [], pulsing: [] };
+                     overlay: false, bubbles: [], taxis: [], tags: [], pulsing: [],
+                     humans: [], marked: [] };
 
 let R = null;            // the current round, with its layout and static layer
 let tf = 0;              // position in the round: index into R.ticks plus a fraction
@@ -104,6 +110,7 @@ function prepareRound(data) {
   const names = data.players.map(n => n.toUpperCase());
   return {
     data, ticks: data.ticks, W, H, C, OX, OY, static: st, names,
+    humans: new Set(data.humans || []),
     padById: Object.fromEntries(data.pads.map(p => [p.id, p])),
     facing: data.players.map(() => 1),
     shown: data.players.map(() => 0),   // the leaderboard's money, counting up to the real one
@@ -447,7 +454,7 @@ function drawHud(i, tk) {
   const left = Math.max(0, rules.round_ticks - tk.t);
   const secs = Math.ceil(left * rules.tick_ms / 1000);
   ctx.font = `20px ${FONT}`; ctx.fillStyle = "#9a94c4";
-  ctx.fillText(LIVE ? `ARENA ${R.data.arena} R${R.data.round}`
+  ctx.fillText(FLY ? `ROUND ${R.data.round}` : LIVE ? `ARENA ${R.data.arena} R${R.data.round}`
                     : `ROUND ${R.data.round}/${ROUNDS[ROUNDS.length - 1].round}`, 32, 44);
   ctx.font = `40px ${FONT}`; ctx.fillStyle = "#ffffff"; ctx.shadowColor = "#2ef2ff"; ctx.shadowBlur = 12;
   ctx.fillText(`${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`, 32, 96); ctx.shadowBlur = 0;
@@ -462,12 +469,54 @@ function drawHud(i, tk) {
     ctx.fillText(fitText(`$${Math.round(R.shown[k])}`, colW - 16), x, 92); ctx.shadowBlur = 0;
   });
 
+  if (FLY) { drawGauges(); return; }
   ctx.font = `16px ${FONT}`; ctx.textAlign = "right";
   tickerAt(i, 3).forEach(([txt, col], j) => {
     ctx.globalAlpha = 1 - j * 0.3; ctx.fillStyle = col;
     ctx.fillText(fitText(txt, SW - 32 - x1 - 16), SW - 32, 38 + j * 30);
   });
   ctx.globalAlpha = 1; ctx.textAlign = "left";
+}
+
+// Fly mode: the player's VY and VX against the soft-landing limits (green: safe), as in play.
+function gauge(x, y, label, v, limit, downOnly) {
+  const w = 200, h = 12, m = R.data.rules.max_speed, px = n => x + (n + m) / (2 * m) * w;
+  ctx.fillStyle = "#1a1530"; ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = "rgba(125,255,90,.25)";
+  if (downOnly) ctx.fillRect(px(-m), y, px(limit) - px(-m), h);
+  else ctx.fillRect(px(-limit), y, px(limit) - px(-limit), h);
+  const safe = downOnly ? v <= limit : Math.abs(v) <= limit;
+  ctx.fillStyle = safe ? "#7dff5a" : "#ff5a6e"; ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 10;
+  ctx.fillRect(px(Math.max(-m, Math.min(m, v))) - 3, y - 5, 6, h + 10); ctx.shadowBlur = 0;
+  ctx.font = `14px ${FONT}`; ctx.textAlign = "left"; ctx.fillStyle = "#9a94c4";
+  ctx.fillText(`${label} ${v}`, x, y - 12);
+}
+function drawGauges() {
+  const me = window.spacetaxi.me, rules = R.data.rules;
+  if (!me || !R.ticks.length) return;
+  gauge(1450, 46, "VY", me.vy, rules.safe_landing_vy, true);
+  gauge(1690, 46, "VX", me.vx, rules.safe_landing_vx, false);
+  ctx.font = `14px ${FONT}`; ctx.textAlign = "left";
+  ctx.fillStyle = me.state === "landed" ? "#7dff5a" : me.state === "crashed" ? "#ff5a6e" : "#9a94c4";
+  ctx.fillText(me.state.toUpperCase() + (me.pad ? ` ON ${me.pad}` : "")
+               + (me.state === "crashed" ? ` ${me.respawn_in}` : ""), 1450, 100);
+}
+
+// Fly mode: the player's own taxi gets a pulsing dashed white ring and a YOU arrow above its
+// name (and above its TO tag when it carries a passenger); bots' taxis have neither.
+function drawYou(x, y, tnow, k, carrying) {
+  const a = 0.6 + 0.4 * Math.sin(tnow / 140), m = Math.max(1, k);
+  ctx.save();
+  ctx.globalAlpha = a; ctx.strokeStyle = "#ffffff"; ctx.shadowColor = "#ffffff"; ctx.shadowBlur = 16;
+  ctx.lineWidth = 3 * m; ctx.setLineDash([8 * k, 6 * k]);
+  ctx.beginPath(); ctx.arc(x, y, 24 * k, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+  ctx.globalAlpha = 1; ctx.fillStyle = "#ffffff";
+  const ty = y - 14 * k - (carrying ? 60 : 30) * m;
+  ctx.beginPath(); ctx.moveTo(x - 9 * m, ty - 12 * m); ctx.lineTo(x + 9 * m, ty - 12 * m); ctx.lineTo(x, ty);
+  ctx.fill();
+  ctx.font = `${Math.round(12 * m)}px ${FONT}`; ctx.textAlign = "center";
+  ctx.fillText("YOU", x, ty - 16 * m);
+  ctx.restore();
 }
 
 // The end-of-round podium: the top 3 by money, the winner in the middle on the tallest step.
@@ -560,6 +609,8 @@ function draw(tnow, dt) {
   window.spacetaxi.taxis = R.data.players.map(() => null);
   window.spacetaxi.tags = [];
   window.spacetaxi.pulsing = [];
+  window.spacetaxi.humans = [...R.humans];
+  window.spacetaxi.marked = [];
   if (!ticks.length) return;
   const i = Math.floor(tf), f = tf - i, tk = ticks[i], C = R.C, k = C / 32;
   // About one flame particle per taxi every 16 ms of replay time.
@@ -591,12 +642,19 @@ function draw(tnow, dt) {
     ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 8;
     ctx.fillText(R.names[p], x, y - 14 * k - 6); ctx.shadowBlur = 0;
     if (pos.to) tag(x, y - 14 * k - 34, `TO ${pos.to}`, "#7dff5a", k);
+    if (FLY && p === fly.index) {
+      drawYou(x, y, tnow, k, Boolean(pos.to));
+      window.spacetaxi.marked.push(R.data.players[p]);
+    } else if (R.humans.has(R.data.players[p])) {
+      tag(x, y + 14 * k + 26, "HUMAN", "#ffffff", k);
+      window.spacetaxi.marked.push(R.data.players[p]);
+    }
   }
   drawEffects(dt);
   if (window.spacetaxi.overlay) drawOverlay(tk, at);
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  if (i === ticks.length - 1 && (!LIVE || R.data.over)) drawPodium(tk);
+  if (i === ticks.length - 1 && !FLY && (!LIVE || R.data.over)) drawPodium(tk);
   ctx.textAlign = "left";
   // The leaderboard counts up (or down) to the real money.
   R.shown = R.shown.map((v, p) => {
@@ -663,6 +721,7 @@ roundSel.addEventListener("change", () => {
 });
 window.addEventListener("keydown", e => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.target instanceof HTMLInputElement) return;   // typing a name
   if (LIVE && (e.key === " " || SPEEDS[e.key])) return;
   if (e.key === " ") {
     e.preventDefault();
@@ -705,7 +764,8 @@ fit();
 setSpeed(1);
 const fontReady = document.fonts ? document.fonts.load(`16px ${FONT}`).catch(() => {}) : Promise.resolve();
 fontReady.then(() => {
-  if (LIVE) startLive();
+  if (FLY) startFly();
+  else if (LIVE) startLive();
   else {
     selectRound(0);
     setPlaying(window.spacetaxi.started);
@@ -780,7 +840,7 @@ function liveOptions() {
 
 function liveAdvance(dt, now) {
   const end = R.ticks.length - 1;
-  splash.hidden = window.spacetaxi.started && !liveIdle(now);
+  splash.hidden = FLY || (window.spacetaxi.started && !liveIdle(now));
   window.spacetaxi.idle = live.running.size === 0;
   if (end < 0) { playing = false; return; }
   if (end - tf > LIVE_LAG) { tf = end - 1; fired = Math.floor(tf); }
@@ -801,7 +861,8 @@ function onLive(msg) {
   if (msg.type === "round_start") {
     const rules = { ...ROUNDS[0].rules, ...(msg.rules || {}) };
     live.slots[slot] = { round: msg.round, arena: slot, map: msg.map, pads: msg.pads,
-                         players: msg.players, rules, ticks: [], over: false };
+                         players: msg.players, humans: msg.humans || [], rules, ticks: [],
+                         over: false };
     live.running.add(slot);
     live.latest = slot;
     liveOptions();
@@ -855,6 +916,7 @@ async function loadLeaderboard() {
   lbRows.replaceChildren(...data.leaderboard.slice(0, 14).map((r, n) => {
     const li = document.createElement("li");
     for (const [cls, text] of [["rank", `${n + 1}.`], ["name", r.name.toUpperCase()],
+                               ...(r.human ? [["human", "HUMAN"]] : []),
                                ["avg", `${r.avg_money < 0 ? "-" : ""}$${Math.abs(Math.round(r.avg_money))}`]]) {
       const span = document.createElement("span"); span.className = cls; span.textContent = text;
       li.appendChild(span);
@@ -874,4 +936,182 @@ function startLive() {
   connectLive();
   loadLeaderboard();
   setInterval(loadLeaderboard, 3000);
+}
+
+// ---------- fly mode: a person flies one taxi in the arena, the page is its /bot client ----------
+// The page says `hello` with `"client": "human"`, waits in the queue (`queued`: position and
+// `starts_in`), and answers every `tick` at once with a `move` for that tick from the keys held
+// at that moment (no key: ax 0, ay 0). Its round plays in the live view above with its own taxi
+// marked; after `round_end` it shows the results while the server puts it back into the queue,
+// as for any bot. LEAVE disconnects. The debug hook gets: `fly` (join, connecting, queued,
+// playing, over), `id`, `you` (the player's index in the round), `me` (its taxi from the latest
+// tick: fx, fy, vx, vy, state, pad, money, respawn_in, tick), `queue`, `results`, `moves` (moves
+// sent), `lastMove` and `keys` (held).
+const NAME_RE = /^[A-Za-z0-9_-]{1,12}$/;
+const FLY_KEYS = ["ArrowUp", "ArrowLeft", "ArrowRight"];
+const fly = { sock: null, id: null, index: -1, round: null, error: "" };
+const held = new Set();
+const joinForm = document.getElementById("join"), nameInput = document.getElementById("name");
+const joinMsg = document.getElementById("joinMsg"), statusEl = document.getElementById("status");
+const resultsEl = document.getElementById("results"), resultRows = document.getElementById("resultRows");
+const leaveBtn = document.getElementById("leave"), touchEl = document.getElementById("touch");
+
+function heldMove() {
+  const ax = (held.has("ArrowRight") ? 1 : 0) - (held.has("ArrowLeft") ? 1 : 0);
+  return [ax, held.has("ArrowUp") ? -1 : 0];
+}
+
+function setHeld(key, on) {
+  if (on) held.add(key); else held.delete(key);
+  window.spacetaxi.keys = [...held].sort();
+  document.querySelectorAll(`#touch [data-key="${key}"]`).forEach(b => b.classList.toggle("on", on));
+}
+
+function releaseAll() {
+  for (const key of [...held]) setHeld(key, false);
+}
+
+function showStatus(text) {
+  statusEl.textContent = text;
+  statusEl.hidden = false;
+}
+
+function showJoin(message) {
+  window.spacetaxi.fly = "join";
+  window.spacetaxi.connected = false;
+  releaseAll();
+  live.running.clear();
+  joinMsg.textContent = message || "";
+  joinForm.hidden = false;
+  statusEl.hidden = true; leaveBtn.hidden = true; touchEl.hidden = true;
+  nameInput.focus();
+}
+
+function showResults(results) {
+  window.spacetaxi.results = results;
+  const order = [...results].sort((a, b) => b.money - a.money);
+  resultRows.replaceChildren(...order.map((r, n) => {
+    const tr = document.createElement("tr");
+    if (r.id === fly.id) tr.className = "you";
+    for (const v of [`${n + 1}.`, r.id.toUpperCase() + (r.id === fly.id ? " (YOU)" : ""),
+                     `${r.money < 0 ? "-" : ""}$${Math.abs(r.money)}`, r.deliveries, r.crashes]) {
+      const td = document.createElement("td"); td.textContent = String(v); tr.appendChild(td);
+    }
+    return tr;
+  }));
+  resultsEl.hidden = false;
+}
+
+function connectFly(name) {
+  const sock = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/bot`);
+  Object.assign(fly, { sock, id: null, index: -1, round: null, error: "" });
+  window.spacetaxi.fly = "connecting";
+  joinForm.hidden = true; resultsEl.hidden = true;
+  leaveBtn.hidden = false; touchEl.hidden = false;
+  showStatus("CONNECTING ...");
+  sock.onopen = () => sock.send(JSON.stringify({ type: "hello", name, protocol: 1, client: "human" }));
+  sock.onmessage = e => {
+    if (fly.sock !== sock) return;
+    let msg;
+    try { msg = JSON.parse(e.data); } catch (err) { return; }
+    onFly(msg, sock);
+  };
+  sock.onclose = () => {
+    if (fly.sock !== sock) return;   // left on purpose
+    fly.sock = null;
+    showJoin(fly.error || "DISCONNECTED FROM THE SERVER");
+  };
+}
+
+function onFly(msg, sock) {
+  const st = window.spacetaxi;
+  if (msg.type === "welcome") {
+    fly.id = msg.id; st.id = msg.id; st.connected = true; st.fly = "queued";
+    showStatus("IN THE QUEUE");
+  } else if (msg.type === "queued") {
+    st.queue = { position: msg.position, waiting: msg.waiting, starts_in: msg.starts_in };
+    if (st.fly !== "over") st.fly = "queued";
+    showStatus(`IN THE QUEUE: ${msg.position} OF ${msg.waiting} · STARTS IN ${msg.starts_in} S`);
+  } else if (msg.type === "round_start") {
+    const rules = { ...ROUNDS[0].rules, ...(msg.rules || {}) };
+    fly.round = { round: msg.round, arena: 1, map: msg.map, pads: msg.pads, players: msg.players,
+                  humans: [], rules, ticks: [], over: false };
+    fly.index = msg.players.indexOf(fly.id);
+    live.slots[1] = fly.round;
+    live.running.add(1);
+    Object.assign(st, { fly: "playing", you: fly.index, me: null, results: null, queue: null });
+    resultsEl.hidden = true; statusEl.hidden = true;
+    showSlot(1);
+  } else if (msg.type === "tick") {
+    const d = fly.round;
+    if (!d || d.over) return;
+    // Answer first: the move must reach the server within deadline_ms of the tick.
+    const [ax, ay] = heldMove();
+    sock.send(JSON.stringify({ type: "move", tick: msg.tick, ax, ay }));
+    st.moves++;
+    st.lastMove = { tick: msg.tick, ax, ay };
+    const mine = (msg.taxis || []).find(t => t.id === fly.id);
+    if (mine) st.me = { fx: mine.fx, fy: mine.fy, vx: mine.vx, vy: mine.vy, state: mine.state,
+                        pad: mine.pad, money: mine.money, respawn_in: mine.respawn_in, tick: msg.tick };
+    if (d.ticks.length && d.ticks[d.ticks.length - 1].t >= msg.tick) return;
+    const tk = compactTick(d.players, msg, d.rules.units_per_cell);
+    if (fly.index >= 0) tk.m[fly.index] = [ax, ay];   // the flames of the player's own move
+    d.ticks.push(tk);
+    if (msg.tick === 1 && R.data === d) sound("jingle", false);
+  } else if (msg.type === "round_end") {
+    if (fly.round) fly.round.over = true;
+    live.running.delete(1);
+    live.idleSince = performance.now();
+    st.fly = "over";
+    showResults(msg.results || []);
+  } else if (msg.type === "error") {
+    fly.error = msg.message || msg.code || "ERROR";
+  }
+}
+
+function leaveFly() {
+  const sock = fly.sock;
+  fly.sock = null;
+  if (sock) sock.close();
+  resultsEl.hidden = true;
+  showJoin("");
+}
+
+function startFly() {
+  document.body.classList.add("fly");
+  splash.hidden = true;
+  Object.assign(window.spacetaxi, { live: true, fly: "join", id: null, you: -1, me: null, queue: null,
+                                    results: null, moves: 0, lastMove: null, keys: [],
+                                    connected: false });
+  showSlot(0);
+  try { nameInput.value = localStorage.getItem("spacetaxi-name") || ""; } catch (err) { /* private mode */ }
+  joinForm.addEventListener("submit", e => {
+    e.preventDefault();
+    const name = nameInput.value.trim();
+    if (!NAME_RE.test(name)) { joinMsg.textContent = "NAME: 1 TO 12 OF A-Z a-z 0-9 _ -"; return; }
+    try { localStorage.setItem("spacetaxi-name", name); } catch (err) { /* private mode */ }
+    if (!window.spacetaxi.started) { window.spacetaxi.started = true; startAudio(); }
+    nameInput.blur();
+    connectFly(name);
+  });
+  leaveBtn.addEventListener("click", () => { leaveBtn.blur(); leaveFly(); });
+  window.addEventListener("keydown", e => {
+    if (e.target instanceof HTMLInputElement || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (FLY_KEYS.includes(e.key) || e.key === "ArrowDown") e.preventDefault();
+    if (FLY_KEYS.includes(e.key) && !held.has(e.key)) setHeld(e.key, true);
+  });
+  window.addEventListener("keyup", e => { if (held.has(e.key)) setHeld(e.key, false); });
+  window.addEventListener("blur", releaseAll);
+  touchEl.querySelectorAll("button").forEach(b => {
+    const key = b.dataset.key;
+    b.addEventListener("contextmenu", e => e.preventDefault());
+    b.addEventListener("pointerdown", e => {
+      e.preventDefault();
+      if (b.setPointerCapture) b.setPointerCapture(e.pointerId);
+      setHeld(key, true);
+    });
+    for (const ev of ["pointerup", "pointerleave", "pointercancel", "lostpointercapture"])
+      b.addEventListener(ev, () => setHeld(key, false));
+  });
+  showJoin("");
 }
