@@ -93,6 +93,13 @@ results are appended as a JSON line and the leaderboard is rebuilt from it on re
 started last, or the one picked at the bottom right, with the leaderboard beside it; between
 rounds it shows the INSERT COIN splash with the queue length; the leaderboard shows the wave. Click once to start the sound.
 
+`/fly` lets a person fly in the arena by hand, against the bots: type a name, wait in the queue,
+then fly your taxi (the one with the dashed ring and YOU) with `↑` (main engine) and `←` `→`
+(side jets), or the touch buttons on a phone; the VY and VX gauges show whether a landing is
+soft. After each round the page shows the results and joins the queue again; LEAVE disconnects.
+Humans get a `human` tag on the leaderboard (`"human": true` in `/leaderboard.json`) and in
+`/watch`.
+
 ## Shortcuts (fish)
 
 ```fish

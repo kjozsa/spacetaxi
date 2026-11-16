@@ -221,7 +221,8 @@ Spectators (the live viewer at `http://HOST:PORT/watch`) connect to `ws://HOST:P
 and send nothing. The server first sends `{"type": "spectate", "arenas": 3}` (how many arenas
 can run side by side), then every arena's `round_start`, `tick` (with the spectator-only
 `moves`, as in a replay) and `round_end`, each with two more fields: `arena`, the arena's slot
-(1 to `arenas`), and `round`. A spectator that connects mid-round first gets each running
+(1 to `arenas`), and `round`. A spectator's `round_start` also has `humans`: the players of the
+round that said `"client": "human"` (a list of ids, often empty). A spectator that connects mid-round first gets each running
 arena's `round_start` and latest `tick`. A spectator that falls behind loses ticks.
 
 ## Messages
@@ -233,8 +234,12 @@ Every message is one JSON object with a `type`. Server to bot: `welcome`, `queue
 
 The bot's first message. `name` becomes the taxi id: 1 to 12 characters, each one of `A-Z`,
 `a-z`, `0-9`, `_` and `-`. `protocol` is the protocol version, `1` for this document.
+`client` is optional: `"human"` says a person flies this taxi by hand (the server's `/fly`
+page). The server plays a human like any bot, but marks it as human on the leaderboard and to
+spectators. Any other value, or none, is a bot.
 
 ```json
+{"type": "hello", "name": "kris", "protocol": 1, "client": "human"}
 {"type": "hello", "name": "alice", "protocol": 1}
 ```
 

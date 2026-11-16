@@ -69,6 +69,7 @@ def replay_data(path: str) -> list[dict]:
             "map": start["map"],
             "pads": start["pads"],
             "players": players,
+            "humans": start.get("humans", []),
             "rules": rules,
             "ticks": [compact_tick(players, t, rules["units_per_cell"]) for t in ticks],
         })
@@ -89,8 +90,17 @@ def build_live_html(game_map, rules: Rules) -> str:
                                          "<title>Spacetaxi live</title>")
 
 
+def build_fly_html(game_map, rules: Rules) -> str:
+    """The page to fly in the arena by hand (`spacetaxi serve`'s `/fly`): the live viewer in
+    `fly` mode, a `/bot` client that answers every tick with the keys held."""
+    blank = {"round": 0, "map": list(game_map.rows), "pads": [p.to_dict() for p in game_map.pads],
+             "players": [], "rules": rules.to_dict(), "ticks": []}
+    return page([blank], "fly").replace("<title>Spacetaxi replay</title>",
+                                        "<title>Spacetaxi: fly</title>")
+
+
 def page(rounds: list[dict], mode: str) -> str:
-    """The viewer page with `rounds` embedded; `mode` is `replay` or `live`."""
+    """The viewer page with `rounds` embedded; `mode` is `replay`, `live` or `fly`."""
     data = json.dumps(rounds, separators=(",", ":"))
     # Inside <script> the JSON must not close the tag: escape every `<`.
     data = data.replace("<", "\\u003c")

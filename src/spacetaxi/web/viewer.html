@@ -19,8 +19,9 @@
   color-scheme: dark;
 }
 html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: var(--fg); }
+/* fixed, not absolute: a 1920 px wide stage would widen a phone's layout viewport */
 #stage {
-  position: absolute; left: 0; top: 0; width: 1920px; height: 1080px;
+  position: fixed; left: 0; top: 0; width: 1920px; height: 1080px;
   transform-origin: 0 0; background: var(--bg); font-family: var(--font);
 }
 #stage canvas { position: absolute; left: 0; top: 0; display: block; }
@@ -85,6 +86,62 @@ body.live #bar { justify-content: flex-end; }
 #lb li .name { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #2ef2ff; }
 #lb li .avg { color: #ffffff; font-variant-numeric: tabular-nums; }
 #lb li:first-child .name { color: #ffd23f; }
+#lb li .tag, #lb li .human { font-size: 10px; align-self: center; color: #04030b; background: #ffffff; padding: 3px 4px; }
+/* Fly mode (`spacetaxi serve`'s /fly): a person flies one taxi. The join form, the queue, the
+   results, the leave button and the touch controls sit outside the scaled stage, so they keep
+   their size on a phone. */
+body.fly #play, body.fly [data-speed], body.fly #scrub, body.fly #round { display: none; }
+body.fly #bar { justify-content: flex-end; }
+.fly-ui { font-family: var(--font); color: var(--fg); }
+#join {
+  position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; gap: 22px;
+  align-items: center; justify-content: center; padding: 16px; text-align: center;
+  background: radial-gradient(ellipse at center, rgba(18,13,46,.9) 0%, rgba(4,3,11,.97) 70%);
+}
+#join[hidden], #status[hidden], #results[hidden], #leave[hidden], #touch[hidden] { display: none; }
+#join h1 { margin: 0; font-size: clamp(24px, 6vw, 64px); font-weight: normal; color: #2ef2ff;
+           letter-spacing: 4px; text-shadow: 0 0 12px #2ef2ff, 0 0 32px #7a5cff; }
+#join label { font-size: clamp(11px, 1.6vw, 16px); color: var(--muted); }
+#join input, #join button, #leave, #touch button {
+  font: clamp(14px, 2.2vw, 22px) var(--font); color: var(--fg); background: var(--panel);
+  border: 2px solid #7a5cff; padding: 12px 16px;
+}
+#join input { width: 14ch; text-align: center; text-transform: none; }
+#join button { color: #120f00; background: var(--accent); border-color: var(--accent); cursor: pointer; }
+#join .hint, #join .msg { font-size: clamp(10px, 1.4vw, 14px); color: var(--muted); line-height: 1.8; }
+#join .msg { color: #ff5a6e; min-height: 1em; }
+#join input:focus-visible, #join button:focus-visible, #leave:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#status {
+  position: fixed; left: 50%; top: 12%; transform: translateX(-50%); z-index: 6;
+  font-size: clamp(11px, 1.8vw, 22px); color: #7dff5a; text-shadow: 0 0 10px #7dff5a;
+  background: rgba(4,3,11,.85); border: 2px solid #7dff5a; padding: 12px 18px; text-align: center;
+  line-height: 1.8; max-width: 92vw;
+}
+#results {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 5;
+  background: rgba(4,3,11,.92); border: 2px solid #ffd23f; padding: 20px 26px; max-width: 92vw;
+  font-size: clamp(10px, 1.5vw, 18px);
+}
+#results h2 { margin: 0 0 16px; font-size: clamp(16px, 2.6vw, 32px); font-weight: normal; color: #ffd23f;
+              text-shadow: 0 0 12px #ffd23f; text-align: center; }
+#results table { border-collapse: collapse; }
+#results th { color: var(--muted); font-weight: normal; }
+#results th, #results td { padding: 8px 10px; text-align: right; white-space: nowrap; }
+#results td:nth-child(-n+2), #results th:nth-child(-n+2) { text-align: left; }
+#results tr.you td { color: #2ef2ff; }
+#leave { position: fixed; left: 50%; transform: translateX(-50%); bottom: max(12px, env(safe-area-inset-bottom, 0px)); z-index: 7; cursor: pointer; font-size: clamp(10px, 1.4vw, 16px); }
+#touch {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; display: flex; justify-content: space-between;
+  padding: 0 max(12px, env(safe-area-inset-left, 0px)) max(12px, env(safe-area-inset-bottom, 0px));
+  pointer-events: none;
+}
+#touch .side { display: flex; gap: 12px; }
+#touch button {
+  pointer-events: auto; font-size: 28px; width: 76px; height: 76px; padding: 0; opacity: .8;
+  user-select: none; -webkit-user-select: none; touch-action: none;
+}
+#touch button.on { background: #7a5cff; }
+@media (hover: hover) and (pointer: fine) { #touch { display: none; } }
 #tickLabel { font-size: 16px; color: var(--muted); min-width: 250px; text-align: right; font-variant-numeric: tabular-nums; }
 </style>
 <body data-mode="/*MODE*/">
@@ -113,6 +170,25 @@ body.live #bar { justify-content: flex-end; }
     <select id="round" aria-label="Round or arena"></select>
     <span id="tickLabel">TICK 0</span>
   </div>
+</div>
+<form id="join" class="fly-ui" hidden>
+  <h1>SPACETAXI</h1>
+  <label for="name">YOUR NAME (1-12 OF A-Z 0-9 _ -)</label>
+  <input id="name" name="name" maxlength="12" autocomplete="nickname" autocapitalize="off" spellcheck="false" required>
+  <button type="submit" id="fly">FLY</button>
+  <p class="msg" id="joinMsg" role="alert"></p>
+  <p class="hint">&uarr; MAIN ENGINE &middot; &larr; &rarr; SIDE JETS<br>LAND SOFTLY: KEEP VY AND VX IN THE GREEN</p>
+</form>
+<div id="status" class="fly-ui" role="status" aria-live="polite" hidden></div>
+<div id="results" class="fly-ui" hidden><h2>ROUND OVER</h2><table><thead><tr>
+  <th>#</th><th>NAME</th><th>$</th><th>DELIV</th><th>CRASH</th></tr></thead><tbody id="resultRows"></tbody></table></div>
+<button id="leave" class="fly-ui" hidden>LEAVE</button>
+<div id="touch" class="fly-ui" aria-label="Touch controls" hidden>
+  <div class="side">
+    <button data-key="ArrowLeft" aria-label="Left jet">&#9664;</button>
+    <button data-key="ArrowRight" aria-label="Right jet">&#9654;</button>
+  </div>
+  <div class="side"><button data-key="ArrowUp" aria-label="Main engine">&#9650;</button></div>
 </div>
 <script id="replay" type="application/json">/*DATA*/</script>
 <script>
