@@ -1,6 +1,7 @@
-"""Command-line entry point. Subcommands: map, run, show, view, play, new-bot."""
+"""Command-line entry point. Subcommands: map, run, show, view, play, new-bot, wifitest."""
 
 import argparse
+import asyncio
 import json
 import sys
 import time
@@ -77,6 +78,27 @@ def build_parser() -> argparse.ArgumentParser:
     new_bot_cmd = commands.add_parser("new-bot", help="write a starter bot (a copy of greedy)")
     new_bot_cmd.add_argument("path", help="the .py file to create; never overwritten")
     new_bot_cmd.set_defaults(func=cmd_new_bot)
+
+    wifi_cmd = commands.add_parser(
+        "wifitest", help="test the WiFi: serve real-size ticks at the game's rhythm and time "
+                         "the answers (or, with --connect, run headless clients)")
+    wifi_cmd.add_argument("--port", type=int, default=8000,
+                          help="port to serve on (default 8000)")
+    wifi_cmd.add_argument(
+        "--rule", action="append", default=[], metavar="KEY=VALUE",
+        help="override one rule constant, e.g. tick_ms=150 or deadline_ms=75 (repeatable)",
+    )
+    wifi_cmd.add_argument("--report", metavar="FILE",
+                          help="write every client's numbers as JSON when the server stops")
+    wifi_cmd.add_argument("--connect", metavar="URL",
+                          help="run headless clients against ws://HOST:PORT/bot instead")
+    wifi_cmd.add_argument("--clients", type=int, default=1,
+                          help="headless clients to run with --connect (default 1)")
+    wifi_cmd.add_argument("--seconds", type=float, default=60,
+                          help="how long the headless clients run (default 60)")
+    wifi_cmd.add_argument("--name", default="lab",
+                          help="name of the headless clients, numbered name-1, name-2, ...")
+    wifi_cmd.set_defaults(func=cmd_wifitest)
     return parser
 
 
@@ -213,6 +235,72 @@ def write_or_serve(command: str, what: str, html: str, out: str | None, port: in
         print()
     finally:
         server.server_close()
+    return 0
+
+
+def cmd_wifitest(args: argparse.Namespace) -> int:
+    from spacetaxi import wifitest
+
+    if args.connect:
+        if args.clients < 1 or args.seconds <= 0:
+            print("spacetaxi wifitest: error: --clients and --seconds must be positive",
+                  file=sys.stderr)
+            return 2
+        if not wifitest.NAME.fullmatch(args.name):
+            print("spacetaxi wifitest: error: --name: 1 to 12 characters of A-Z a-z 0-9 _ -",
+                  file=sys.stderr)
+            return 2
+        print(f"{args.clients} client(s) on {args.connect} for {args.seconds:g} s ...",
+              flush=True)
+        try:
+            results = asyncio.run(wifitest.run_clients(args.connect, args.clients,
+                                                       args.seconds, args.name))
+        except KeyboardInterrupt:
+            print()
+            return 1
+        wifitest.print_client_results(results)
+        return 1 if any(r["error"] for r in results) else 0
+
+    try:
+        rules = parse_rules(args.rule)
+        if rules.tick_ms < 1 or rules.deadline_ms < 1:
+            raise RuleError("tick_ms and deadline_ms must be positive")
+    except RuleError as exc:
+        print(f"spacetaxi wifitest: error: {exc}", file=sys.stderr)
+        return 2
+    print("recording a 4-pilot round on cavern ...", flush=True)
+    test = wifitest.WifiTest(rules, log=sys.stdout)
+
+    async def serve() -> None:
+        server = await test.start(None, args.port)
+        print(f"tick_ms={rules.tick_ms} deadline_ms={rules.deadline_ms}, "
+              f"ticks of about {test.stats()['tick_bytes']} bytes")
+        hosts = wifitest.lan_addresses() or ["localhost"]
+        print("open on the address of the network under test (the first is the default route):")
+        for host in hosts:
+            base = f"http://{host}:{args.port}"
+            print(f"  join {base}/   dashboard {base}/stats   bots ws://{host}:{args.port}/bot")
+        print("Ctrl-C stops" + (f" and writes {args.report}" if args.report else ""),
+              flush=True)
+        async with server:
+            await server.serve_forever()
+
+    try:
+        asyncio.run(serve())
+    except KeyboardInterrupt:
+        print()
+    except OSError as exc:
+        print(f"spacetaxi wifitest: error: cannot serve on port {args.port}: {exc}",
+              file=sys.stderr)
+        return 2
+    finally:
+        if args.report:
+            try:
+                Path(args.report).write_text(json.dumps(test.report(), indent=2) + "\n",
+                                             encoding="utf-8")
+                print(f"wrote {args.report}")
+            except OSError as exc:
+                print(f"spacetaxi wifitest: error: {exc}", file=sys.stderr)
     return 0
 
 

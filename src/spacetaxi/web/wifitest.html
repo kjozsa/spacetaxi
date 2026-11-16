@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>spacetaxi WiFi test</title>
+<style>
+  body { margin: 0; padding: 16px; background: #0b0e1a; color: #e8ecff;
+         font: 18px/1.4 system-ui, sans-serif; }
+  h1 { font-size: 22px; margin: 0 0 12px; }
+  input, button { font: inherit; padding: 8px 12px; border-radius: 6px; border: 1px solid #4a5280; }
+  input { background: #151a30; color: #e8ecff; width: 10em; }
+  button { background: #3550d8; color: white; cursor: pointer; }
+  #status { margin: 12px 0; font-weight: bold; }
+  .ok { color: #6fe39a; } .bad { color: #ff7a7a; } .wait { color: #ffd166; }
+  table { border-collapse: collapse; margin-top: 8px; }
+  td { padding: 4px 12px 4px 0; }
+  td.v { text-align: right; font-variant-numeric: tabular-nums; font-weight: bold; }
+  p.hint { color: #9aa3cc; font-size: 15px; }
+</style>
+</head>
+<body>
+<h1>spacetaxi WiFi test</h1>
+<form id="join">
+  <input id="name" maxlength="12" pattern="[A-Za-z0-9_\-]{1,12}" placeholder="your name"
+         required autocomplete="off">
+  <button id="go" type="submit">Join</button>
+</form>
+<div id="status" class="wait">not connected</div>
+<table>
+  <tr><td>ticks received</td><td class="v" id="received">0</td></tr>
+  <tr><td>answers sent</td><td class="v" id="answered">0</td></tr>
+  <tr><td>late (server)</td><td class="v" id="late">-</td></tr>
+  <tr><td>missing (server)</td><td class="v" id="missing">-</td></tr>
+  <tr><td>round trip p50 / p95</td><td class="v" id="p50">-</td></tr>
+  <tr><td>round trip p99 / max</td><td class="v" id="p99">-</td></tr>
+  <tr><td>longest late run</td><td class="v" id="run">-</td></tr>
+  <tr><td>gap between ticks, max</td><td class="v" id="gap">-</td></tr>
+</table>
+<p class="hint">Keep this page open and the screen on while the test runs.</p>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const state = { received: 0, answered: 0, lastTick: 0, maxGap: 0, stats: null, sock: null };
+window.wifitest = state;
+$("name").value = localStorage.getItem("spacetaxi-name") || "";
+
+function status(text, cls) { $("status").textContent = text; $("status").className = cls; }
+
+function show() {
+  $("received").textContent = state.received;
+  $("answered").textContent = state.answered;
+  $("gap").textContent = state.maxGap ? state.maxGap.toFixed(0) + " ms" : "-";
+  const s = state.stats;
+  if (!s) return;
+  $("late").textContent = s.late_pct + " %";
+  $("late").className = "v " + (s.late_pct < 1 ? "ok" : "bad");
+  $("missing").textContent = s.missing_pct + " %";
+  $("p50").textContent = s.rtt_p50_ms + " / " + s.rtt_p95_ms + " ms";
+  $("p99").textContent = s.rtt_p99_ms + " / " + s.rtt_max_ms + " ms";
+  $("run").textContent = s.longest_bad_run;
+}
+
+$("join").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const name = $("name").value.trim();
+  localStorage.setItem("spacetaxi-name", name);
+  if (state.sock) state.sock.close();
+  Object.assign(state, { received: 0, answered: 0, lastTick: 0, maxGap: 0, stats: null });
+  show();
+  status("connecting ...", "wait");
+  const sock = new WebSocket(`ws://${location.host}/bot`);
+  state.sock = sock;
+  sock.onopen = () => sock.send(JSON.stringify({ type: "hello", name, protocol: 1 }));
+  sock.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === "tick") {
+      sock.send(`{"type":"move","tick":${msg.tick},"ax":0,"ay":0}`);
+      const now = performance.now();
+      if (state.lastTick && state.received > 1) {
+        state.maxGap = Math.max(state.maxGap, now - state.lastTick);
+      }
+      state.lastTick = now;
+      state.received++;
+      state.answered++;
+    } else if (msg.type === "welcome") {
+      status(`connected as ${msg.id}, tick every ${msg.rules.tick_ms} ms`, "ok");
+    } else if (msg.type === "stats") {
+      state.stats = msg;
+    } else if (msg.type === "error") {
+      status(`refused: ${msg.message}`, "bad");
+    }
+  };
+  sock.onclose = () => {
+    if (state.sock !== sock) return;
+    if ($("status").className !== "bad") status("disconnected: press Join again", "bad");
+  };
+});
+setInterval(show, 250);
+</script>
+</body>
+</html>
