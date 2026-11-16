@@ -27,7 +27,7 @@ uv run spacetaxi --help
 ```
 
 `spacetaxi` is the command-line entry point. Its subcommands (`map`, `run`, `show`, `view`,
-`play`, `new-bot`, `wifitest`)
+`play`, `new-bot`, `wifitest`, `serve`)
 are added as the game grows; `spacetaxi <command> --help` describes each one.
 
 ## Watch a replay in the browser
@@ -68,6 +68,21 @@ uv run spacetaxi wifitest --connect ws://HOST:8000/bot --clients 12 --seconds 30
 The server sends real-size `tick` messages at the game's rhythm to every client on `/bot` and
 times each answer; phones and laptops join on `/`, `/stats` is the dashboard for the projector.
 The procedure and the go/no-go reading are in [docs/venue-wifi-test.md](docs/venue-wifi-test.md).
+
+## Run the arena
+
+```sh
+uv run spacetaxi serve --map cavern --port 8000 --log results.jsonl --replays replays/
+uv run spacetaxi serve --rule round_ticks=300 --fill-seconds 5   # shorter rounds, quicker fill
+```
+
+Bots connect to `ws://HOST:8000/bot` (protocol in [docs/rules.md](docs/rules.md)) and wait in one
+queue. A round of up to 4 taxis starts in a new arena as soon as 4 bots are waiting, or once the
+first in line has waited `--fill-seconds`; up to 3 arenas run side by side, and after its round
+every bot goes straight back to the end of the queue. A bot that disconnects mid-round coasts until
+the round ends. `/` is the leaderboard (`/leaderboard.json` its data); with `--log` each round's
+results are appended as a JSON line and the leaderboard is rebuilt from it on restart; with
+`--replays` each round is written as a replay for `spacetaxi view`.
 
 ## Shortcuts (fish)
 
