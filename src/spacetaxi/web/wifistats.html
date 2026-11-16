@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>spacetaxi WiFi test: stats</title>
+<style>
+  body { margin: 0; padding: 24px; background: #0b0e1a; color: #e8ecff;
+         font: 22px/1.4 system-ui, sans-serif; }
+  h1 { font-size: 28px; margin: 0 0 4px; }
+  #info { color: #9aa3cc; margin-bottom: 16px; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { padding: 6px 12px; border-bottom: 1px solid #2a3050; text-align: right;
+           font-variant-numeric: tabular-nums; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: #9aa3cc; font-weight: normal; }
+  tr.total td { font-weight: bold; border-top: 2px solid #9aa3cc; }
+  tr.gone td { color: #6b7299; }
+  .ok { color: #6fe39a; } .bad { color: #ff7a7a; }
+  #verdict { margin-top: 16px; font-size: 26px; font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>spacetaxi WiFi test</h1>
+<div id="info">waiting for the server ...</div>
+<table>
+  <thead><tr>
+    <th>name</th><th>ticks</th><th>answers</th><th>late %</th><th>missing %</th>
+    <th>p50 ms</th><th>p95 ms</th><th>p99 ms</th><th>max ms</th><th>longest late run</th>
+  </tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+<div id="verdict"></div>
+<script>
+"use strict";
+const COLS = ["ticks", "answers", "late_pct", "missing_pct", "rtt_p50_ms", "rtt_p95_ms",
+              "rtt_p99_ms", "rtt_max_ms", "longest_bad_run"];
+
+function row(r, cls) {
+  const tr = document.createElement("tr");
+  if (cls) tr.className = cls;
+  const name = document.createElement("td");
+  name.textContent = r.name + (r.connected === false ? " (left)" : "");
+  tr.appendChild(name);
+  for (const key of COLS) {
+    const td = document.createElement("td");
+    td.textContent = r[key];
+    if (key === "late_pct") td.className = r[key] < 1 ? "ok" : "bad";
+    tr.appendChild(td);
+  }
+  return tr;
+}
+
+async function refresh() {
+  try {
+    const res = await fetch("/stats.json", { cache: "no-store" });
+    const s = await res.json();
+    window.lastStats = s;
+    document.getElementById("info").textContent =
+      `tick every ${s.tick_ms} ms, deadline ${s.deadline_ms} ms, ticks of ${s.tick_bytes} bytes` +
+      ` | ${s.connected} connected | running ${s.seconds} s` +
+      ` | late: no answer within the deadline (missing included)` +
+      ` | missing: no answer before the next tick`;
+    const body = document.getElementById("rows");
+    body.replaceChildren(...s.clients.map((r) => row(r, r.connected ? "" : "gone")),
+                         row(s.total, "total"));
+    const v = document.getElementById("verdict");
+    const judged = s.clients.filter((r) => r.ticks > 0);
+    if (!judged.length) { v.textContent = ""; return; }
+    const worst = Math.max(...judged.map((r) => r.late_pct));
+    v.textContent = worst < 1 ? `GO: every client late under 1 % (worst ${worst} %)`
+                              : `NO-GO: worst client late ${worst} %`;
+    v.className = worst < 1 ? "ok" : "bad";
+  } catch (e) {
+    document.getElementById("info").textContent = "server not reachable";
+  }
+}
+refresh();
+setInterval(refresh, 500);
+</script>
+</body>
+</html>

@@ -27,7 +27,7 @@ uv run spacetaxi --help
 ```
 
 `spacetaxi` is the command-line entry point. Its subcommands (`map`, `run`, `show`, `view`,
-`play`, `new-bot`)
+`play`, `new-bot`, `wifitest`)
 are added as the game grows; `spacetaxi <command> --help` describes each one.
 
 ## Watch a replay in the browser
@@ -57,6 +57,17 @@ The flight lab: one taxi on the real map and rules, flown with the arrow keys (`
 the touch buttons on a phone, to feel what a bot is up against. The dials change the physics
 live and list the `--rule` flags for what you set. Its physics is a port of the simulation;
 `tests/e2e/test_play.py` checks it ticks exactly like `World`.
+
+## Test the venue WiFi
+
+```sh
+uv run spacetaxi wifitest --rule tick_ms=100 --report wifi-100.json    # the server, Ctrl-C stops
+uv run spacetaxi wifitest --connect ws://HOST:8000/bot --clients 12 --seconds 300 --name lab
+```
+
+The server sends real-size `tick` messages at the game's rhythm to every client on `/bot` and
+times each answer; phones and laptops join on `/`, `/stats` is the dashboard for the projector.
+The procedure and the go/no-go reading are in [docs/venue-wifi-test.md](docs/venue-wifi-test.md).
 
 ## Shortcuts (fish)
 
