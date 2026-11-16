@@ -168,3 +168,16 @@ def test_watch_shows_insert_coin_with_the_queue_between_rounds(browser, lonely):
     assert "INSERT COIN" in splash.inner_text() and "1 BOT IN THE QUEUE" in splash.inner_text()
     page.close()
     assert errors == []
+
+
+def test_watch_leaderboard_waits_for_the_first_round(browser, lonely):
+    base, server = lonely
+    page, errors = open_watch(browser, base)
+    page.wait_for_function("window.spacetaxi.connected", timeout=10000)
+    page.wait_for_function("document.querySelector('#lbRows').textContent.trim() !== ''",
+                           timeout=10000)
+    assert state(page)["leaderboard"] == []
+    assert page.locator("#lbRows").inner_text().strip() == "WAITING FOR THE FIRST ROUND"
+    assert page.locator("#lb").is_visible()
+    page.close()
+    assert errors == []

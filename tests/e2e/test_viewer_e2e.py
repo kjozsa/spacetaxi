@@ -528,3 +528,38 @@ def test_old_replay_without_fine_positions(browser):
     finally:
         page.close()
     assert errors == []
+
+
+def test_passenger_tags_on_one_pad_do_not_overlap(browser, tmp_path, shots):
+    """Three passengers wait side by side on pad A of a 40x24 map, the size of the arena maps:
+    their TO tags stack without overlapping."""
+    taxi = {"id": "alice", "x": 37, "y": 21, "vx": 0, "vy": 0, "state": "landed", "pad": "B",
+            "passenger": None, "money": 0, "respawn_in": 0}
+    lines = [
+        {"type": "round_start", "round": 1,
+         "map": ["#" * 40, "#S" + "." * 37 + "#", *["#" + "." * 38 + "#"] * 20,
+                 "#AAAA" + "." * 32 + "BB#", "#" * 40],
+         "pads": [{"id": "A", "x": 1, "y": 22, "len": 4}, {"id": "B", "x": 37, "y": 22, "len": 2}]},
+        {"type": "tick", "tick": 1, "taxis": [taxi],
+         "passengers": [{"id": n, "at": "A", "spot_x": 1 + n, "to": "B", "fare": 100 + n}
+                        for n in range(3)]},
+    ]
+    out = tmp_path / "three.jsonl"
+    out.write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
+    page = browser.new_page(viewport={"width": 1920, "height": 1080})
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    try:
+        page.set_content(build_html(str(out)))
+        page.wait_for_function("window.spacetaxi && window.spacetaxi.fps > 0")
+        s = state(page)
+        assert sorted(s["tags"]) == ["TO B $100", "TO B $101", "TO B $102"]
+        boxes = s["tagBoxes"]
+        assert len(boxes) == 3
+        for i, (ax, ay, aw, ah) in enumerate(boxes):
+            for bx, by, bw, bh in boxes[i + 1:]:
+                assert ax + aw <= bx or bx + bw <= ax or ay + ah <= by or by + bh <= ay
+        page.screenshot(path=str(shots / "stacked-tags.png"))
+    finally:
+        page.close()
+    assert errors == []

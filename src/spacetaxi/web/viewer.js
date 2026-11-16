@@ -38,14 +38,15 @@ const splash = document.getElementById("splash");
 // whether the AudioContext has been set up, whether the debug overlay (key D) is on and the
 // text of each taxi's debug bubble ("" for none, in player order; all "" with the overlay off),
 // each taxi's drawn centre on the 1920x1080 stage (`[x, y]`, null when crashed, in player
-// order), the texts of the destination tags drawn and the ids of the pads pulsing as the
+// order), the texts of the destination tags drawn, their boxes on the stage (`[x, y, w, h]`, in
+// the same order) and the ids of the pads pulsing as the
 // destination of a carried passenger, the human players of the round and the players whose
 // taxi has the HUMAN tag or (fly mode) the YOU marker this frame.
 const fx = { flames: 0, explosions: 0, dust: 0, pickups: 0, cash: 0, shakes: 0 };
 const sfx = { hum: 0, boom: 0, chime: 0, cash: 0, jingle: 0 };
 window.spacetaxi = { round: 0, tick: 0, fps: 0, scanlines: true, podium: null, fx, sfx,
                      muted: false, started: false, audio: false, thrusting: 0,
-                     overlay: false, bubbles: [], taxis: [], tags: [], pulsing: [],
+                     overlay: false, bubbles: [], taxis: [], tags: [], tagBoxes: [], pulsing: [],
                      humans: [], marked: [] };
 
 let R = null;            // the current round, with its layout and static layer
@@ -381,6 +382,7 @@ function tag(x, y, text, color, k) {
   ctx.fillStyle = color; ctx.fillText(text, x, y + 1);
   ctx.restore();
   window.spacetaxi.tags.push(text);
+  window.spacetaxi.tagBoxes.push([x - w / 2, y - 14 * m, w, h]);
 }
 
 // The destination pad of a carried passenger: a green outline around the pad and the cell
@@ -608,6 +610,7 @@ function draw(tnow, dt) {
   window.spacetaxi.bubbles = R.data.players.map(() => "");
   window.spacetaxi.taxis = R.data.players.map(() => null);
   window.spacetaxi.tags = [];
+  window.spacetaxi.tagBoxes = [];
   window.spacetaxi.pulsing = [];
   window.spacetaxi.humans = [...R.humans];
   window.spacetaxi.marked = [];
@@ -621,11 +624,23 @@ function draw(tnow, dt) {
   for (const id of pulsing) if (R.padById[id]) drawPulse(R.padById[id], tnow);
   window.spacetaxi.pulsing = pulsing;
 
+  // The tags of the passengers waiting on one pad stack upwards in spot order, bobbing
+  // together, so they never overlap; a lone tag stays above its passenger.
+  const stacks = new Map();   // pad id -> [spot, text] of its tagged passengers
   for (const [at, spot, to, fare] of tk.p) {
     const pad = R.padById[at]; if (!pad) continue;
     const x = R.OX + spot * C + C / 2, y = R.OY + pad.y * C - 3 * k;
     drawPassenger(x, y, tnow, spot, k);
-    if (to != null) tag(x, y - 36 * k + Math.sin(tnow / 180 + spot) * 1.5 * k, `TO ${to} $${fare}`, "#ffd23f", k);
+    if (to == null) continue;
+    if (!stacks.has(at)) stacks.set(at, []);
+    stacks.get(at).push([spot, `TO ${to} $${fare}`]);
+  }
+  for (const [at, list] of stacks) {
+    const pad = R.padById[at], m = Math.max(1, k);
+    list.sort((a, b) => a[0] - b[0]);
+    const x = list.length === 1 ? R.OX + list[0][0] * C + C / 2 : R.OX + (pad.x + pad.len / 2) * C;
+    const y = R.OY + pad.y * C - 39 * k + Math.sin(tnow / 180 + list[0][0]) * 1.5 * k;
+    list.forEach(([, text], n) => tag(x, y - n * 24 * m, text, "#ffd23f", k));
   }
 
   ctx.font = `14px ${FONT}`; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
@@ -913,6 +928,12 @@ async function loadLeaderboard() {
   queueEl.textContent = `${data.waiting} ${data.waiting === 1 ? "BOT" : "BOTS"} IN THE QUEUE`;
   lbSub.textContent = `WAVE ${data.wave} \u00b7 ${data.rounds} ROUNDS \u00b7 AVG $`;
   window.spacetaxi.wave = data.wave;
+  if (!data.leaderboard.length) {
+    const li = document.createElement("li"); li.className = "empty";
+    li.textContent = "WAITING FOR THE FIRST ROUND";
+    lbRows.replaceChildren(li);
+    return;
+  }
   lbRows.replaceChildren(...data.leaderboard.slice(0, 14).map((r, n) => {
     const li = document.createElement("li");
     for (const [cls, text] of [["rank", `${n + 1}.`], ["name", r.name.toUpperCase()],
