@@ -6,7 +6,9 @@ from docs/rules.md. Optional hooks: `welcome(info)` gets the `welcome` message o
 the module, so two players using the same bot share no module state.
 
 Each `move` call is timed; one that takes longer than `deadline_ms` counts as a timeout and the
-taxi coasts. A move that raises or returns an invalid answer counts as an error and coasts.
+taxi coasts. A move that raises or returns an invalid answer counts as an error and coasts. A move
+for another tick than the one being played is late: it counts as a timeout and coasts. In-process
+bots may leave `tick` out of their answer; the runner fills in the current tick.
 """
 
 import importlib.util
@@ -70,6 +72,20 @@ def is_valid_move(move) -> bool:
         if type(a) is not int or a not in (-1, 0, 1):
             return False
     return True
+
+
+def check_move(move, tick: int, in_process: bool = False) -> str:
+    """Validate a `move` answering tick `tick`: `"ok"`, `"invalid"` (not a valid move, or no
+    integer `tick`) or `"late"` (a valid move whose `tick` is another tick). An in-process bot
+    may leave `tick` out; it is then filled in as the current tick."""
+    if not is_valid_move(move):
+        return "invalid"
+    if in_process and "tick" not in move:
+        return "ok"
+    t = move.get("tick")
+    if type(t) is not int:
+        return "invalid"
+    return "ok" if t == tick else "late"
 
 
 def clean_debug(debug) -> str | dict | None:
@@ -152,14 +168,14 @@ class Player:
             move = self.bot.move(state)
         except Exception:
             move = None
-            failed = True
+            status = "invalid"
         else:
-            failed = not is_valid_move(move)
+            status = check_move(move, state["tick"], in_process=True)
         elapsed_ms = (time.perf_counter_ns() - start) // 1_000_000
-        if elapsed_ms > deadline_ms:
+        if elapsed_ms > deadline_ms or status == "late":
             self.stats.timeouts += 1
             record = {**COAST, "coast": True}
-        elif failed:
+        elif status == "invalid":
             self.stats.errors += 1
             record = {**COAST, "coast": True}
         else:

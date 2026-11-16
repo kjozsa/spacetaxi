@@ -68,10 +68,10 @@ Example:
 
 ## Moves
 
-Every tick each bot answers with a move:
+Every tick each bot answers with a move for that tick:
 
 ```json
-{"ax": -1, "ay": 0}
+{"ax": -1, "ay": 0, "tick": 42}
 ```
 
 `ax` and `ay` must each be one of the integers `-1`, `0`, `1`. `ax` fires the side jets
@@ -79,6 +79,10 @@ Every tick each bot answers with a move:
 `ay = 1` is a valid answer but does nothing, the same as `ay = 0`. A missing answer, an
 answer that arrives after `deadline_ms`, or an invalid answer (bad JSON, missing key, any
 other value or type, booleans included) counts as `{"ax": 0, "ay": 0}`: the taxi coasts.
+`tick` is the number of the `tick` message the move answers. A move whose `tick` is not the tick
+being played is late, and coasts exactly like a missing answer; a move without an integer `tick`
+is invalid. Bots run in-process by `spacetaxi run` may leave `tick` out: the runner fills in the
+current tick.
 
 ## Tick order
 
@@ -203,10 +207,26 @@ moves replays identically.
 | `fare_base`             |    `50` | fixed part of every fare                                         |
 | `fare_per_cell`         |     `2` | fare per cell of Manhattan distance between pad centres          |
 
+## Transport
+
+Bots connect to the server over WebSocket at `ws://HOST:PORT/bot`. Every message is one JSON
+object, sent as one text frame. The bot's first message is `hello`; the server answers with
+`welcome`, then `queued` while the bot waits for a round. When the server sends an `error`, it
+closes the socket right after it.
+
 ## Messages
 
-Every message is one JSON object with a `type`. Server to bot: `welcome`, `round_start`,
-`tick`, `round_end`. Bot to server: `move`.
+Every message is one JSON object with a `type`. Server to bot: `welcome`, `queued`,
+`round_start`, `tick`, `round_end`, `error`. Bot to server: `hello`, `move`.
+
+### `hello`
+
+The bot's first message. `name` becomes the taxi id: 1 to 12 characters, each one of `A-Z`,
+`a-z`, `0-9`, `_` and `-`. `protocol` is the protocol version, `1` for this document.
+
+```json
+{"type": "hello", "name": "alice", "protocol": 1}
+```
 
 ### `welcome`
 
@@ -225,6 +245,16 @@ Sent once when a bot joins. Carries the bot's taxi id and the rules (every const
     "fare_base": 50, "fare_per_cell": 2
   }
 }
+```
+
+### `queued`
+
+Sent after `welcome` while the bot waits for a round to start, and again whenever its place in
+the queue changes. `position` is the bot's place in the queue, from `1`; `waiting` is the
+number of bots in the queue.
+
+```json
+{"type": "queued", "position": 3, "waiting": 5}
 ```
 
 ### `round_start`
@@ -337,15 +367,16 @@ Event shapes:
 
 ### `move`
 
-The bot's answer to a `tick`. `debug` is optional, for viewers and logs; the simulation
-ignores it. It is either free text, or an object with an optional `say` (free text) and an
-optional `path` (a list of `[x, y]` integer cells, e.g. the planned route). Other keys of the
-object, a `say` that is not text and a `path` that is not such a list are dropped; any other
-`debug` is dropped whole.
+The bot's answer to a `tick`. `tick` is required: the `tick` it answers (see Moves); a move
+for any other tick is late and the taxi coasts. `debug` is optional, for viewers and logs; the
+simulation ignores it. It is either free text, or an object with an optional `say` (free text)
+and an optional `path` (a list of `[x, y]` integer cells, e.g. the planned route). Other keys
+of the object, a `say` that is not text and a `path` that is not such a list are dropped; any
+other `debug` is dropped whole.
 
 ```json
-{"type": "move", "ax": 0, "ay": -1, "debug": "climbing to cruise height"}
-{"type": "move", "ax": 1, "ay": 0, "debug": {"say": "to pad B", "path": [[5, 5], [6, 5]]}}
+{"type": "move", "tick": 42, "ax": 0, "ay": -1, "debug": "climbing to cruise height"}
+{"type": "move", "tick": 42, "ax": 1, "ay": 0, "debug": {"say": "to pad B", "path": [[5, 5], [6, 5]]}}
 ```
 
 The web viewer (`spacetaxi view`) shows each taxi's `debug` above it when key `D` is on: the
@@ -364,4 +395,19 @@ Sent after the last tick, with per-taxi results.
     {"id": "bob", "money": 158, "deliveries": 3, "crashes": 4}
   ]
 }
+```
+
+### `error`
+
+Sent when the server refuses a bot or a message; the server then closes the socket. `message`
+is free text for humans. `code` is one of:
+
+- `name_taken`: another connected bot already has this `name`.
+- `bad_name`: the `name` in `hello` breaks the naming rule.
+- `bad_protocol`: the server does not speak the `protocol` in `hello`.
+- `bad_message`: the message is not JSON, not an object, has an unknown `type`, or is not
+  `hello` when `hello` is expected.
+
+```json
+{"type": "error", "code": "name_taken", "message": "name 'alice' is already connected"}
 ```

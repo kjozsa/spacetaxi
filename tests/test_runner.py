@@ -262,3 +262,40 @@ def test_replay_keeps_object_debug(tmp_path):
     assert moves[0]["debug"] == {"say": "hi", "path": [[5, 5], [6, 5]]}
     assert moves[1]["debug"] == {}
     assert "debug" not in moves[2]
+
+
+def test_check_move_tick():
+    from spacetaxi.runner import check_move
+    assert check_move({"ax": 0, "ay": -1, "tick": 7}, 7) == "ok"
+    assert check_move({"type": "move", "ax": 1, "ay": 0, "tick": 7}, 7) == "ok"
+    assert check_move({"ax": 0, "ay": -1, "tick": 6}, 7) == "late"
+    assert check_move({"ax": 0, "ay": -1, "tick": 8}, 7) == "late"
+    # From a message, `tick` is required and must be an int.
+    assert check_move({"ax": 0, "ay": -1}, 7) == "invalid"
+    assert check_move({"ax": 0, "ay": -1, "tick": "7"}, 7) == "invalid"
+    assert check_move({"ax": 0, "ay": -1, "tick": True}, 1) == "invalid"
+    assert check_move({"ax": 2, "ay": 0, "tick": 7}, 7) == "invalid"
+    # In-process bots may leave `tick` out; a wrong one is still late.
+    assert check_move({"ax": 0, "ay": -1}, 7, in_process=True) == "ok"
+    assert check_move({"ax": 0, "ay": -1, "tick": 7}, 7, in_process=True) == "ok"
+    assert check_move({"ax": 0, "ay": -1, "tick": 3}, 7, in_process=True) == "late"
+
+
+def test_wrong_tick_coasts_as_late(tmp_path):
+    import io
+    stale = tmp_path / "stale.py"
+    stale.write_text("def move(state):\n    return {'ax': 0, 'ay': -1, 'tick': state['tick'] - 1}\n")
+    good = tmp_path / "good.py"
+    good.write_text("def move(state):\n    return {'ax': 0, 'ay': -1, 'tick': state['tick']}\n")
+    replay = io.StringIO()
+    s, g = run(load_map("classic"), [str(stale), str(good)], rounds=1, seed=4, replay=replay)
+    ticks = Rules().round_ticks
+    assert s["timeouts"] == ticks and s["errors"] == 0
+    assert g["timeouts"] == 0 and g["errors"] == 0
+    lines = [json.loads(l) for l in replay.getvalue().splitlines()]
+    moves = [l["moves"] for l in lines if l["type"] == "tick"]
+    assert all(m["stale"] == {"ax": 0, "ay": 0, "coast": True} for m in moves)
+    assert all(m["good"]["coast"] is False and m["good"]["ay"] == -1 for m in moves)
+    [idle] = run(load_map("classic"), ["idle"], rounds=1, seed=4)
+    [alone] = run(load_map("classic"), [str(stale)], rounds=1, seed=4)
+    assert alone["crashes"] == idle["crashes"] and alone["avg_money"] == idle["avg_money"]
