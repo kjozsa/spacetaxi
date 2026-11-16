@@ -1,12 +1,17 @@
 """The arena server: bots connect over WebSocket and fly live rounds of up to 4 taxis.
 
 A bot says `hello` on `/bot`, gets `welcome` and waits in one queue (`queued` tells it its
-place). A round starts in a new arena as soon as 4 bots are waiting, or when the longest-waiting
-bot has waited `fill_seconds`, with however many are waiting. Up to `max_arenas` arenas run side
-by side; after `round_end` every bot of the round that is still connected goes back to the end
-of the queue.
+place and `starts_in`, the seconds until its round starts). Rounds run in waves: a wave starts
+`fill_seconds` after the first bot joins an idle server, and again `fill_seconds` after every
+arena of the previous wave has ended (the pause for the podium and the leaderboard). At wave
+start the waiting bots are dealt into up to `max_arenas` arenas of at most 4, as even as
+possible (7 bots play 4 and 3, 6 play 3 and 3); bots beyond that wait for the next wave. The
+deal is a seeded shuffle that prefers bots who have met least so far and avoids repeating a
+group of the previous wave, so groups mix and the leaderboard compares like with like. A bot
+that joins mid-wave plays from the next wave; after `round_end` every bot of the round that is
+still connected goes back to the end of the queue.
 
-Each arena ticks every `tick_ms` on its own clock. A `move` counts when it names the tick being
+All arenas of a wave start together and tick every `tick_ms` on the same clock. A `move` counts when it names the tick being
 played and arrives within `deadline_ms` of that tick being sent; anything else is dropped and the
 taxi coasts. Every message to a bot goes through the bot's own outbox and sender task, so a slow
 or vanished bot never holds up its arena or the others; a bot whose outbox backs up loses ticks.
@@ -22,6 +27,7 @@ as a replay that `spacetaxi view` opens.
 """
 
 import asyncio
+import itertools
 import json
 import random
 import re
@@ -42,6 +48,17 @@ ARENA_SIZE = 4
 MAX_ARENAS = 3
 HELLO_TIMEOUT = 10  # seconds a new connection has to say hello
 OUTBOX_TICKS = 8  # a tick is dropped for a bot that has this many messages still unsent
+DEAL_TRIES = 200  # shuffles tried per deal; the one whose groups have met least wins
+
+
+def group_sizes(waiting: int, max_arenas: int = MAX_ARENAS) -> list[int]:
+    """Arena sizes for a wave with `waiting` bots: at most 4 each, as even as possible, largest
+    first; bots beyond `max_arenas` full arenas wait for the next wave."""
+    n = min(waiting, ARENA_SIZE * max_arenas)
+    if n <= 0:
+        return []
+    k = -(-n // ARENA_SIZE)
+    return [n // k + (1 if i < n % k else 0) for i in range(k)]
 
 
 def dumps(message: dict) -> str:
@@ -56,8 +73,7 @@ class Bot:
         self.backlog = backlog  # droppable messages are dropped at this many unsent
         self.sock = sock
         self.connected = True
-        self.queued_at = 0  # perf_counter_ns when it joined the queue
-        self.told: tuple[int, int] | None = None  # the last (position, waiting) sent
+        self.told: tuple[int, int, int] | None = None  # the last (position, waiting, starts_in)
         self.arena: "Arena | None" = None
         self.outbox: asyncio.Queue[str] = asyncio.Queue()
         self.sender = asyncio.create_task(self._send_loop())
@@ -121,9 +137,10 @@ class Arena:
     """One live round: its world, its bots and the moves for the tick being played."""
 
     def __init__(self, server: "ArenaServer", number: int, bots: list[Bot], seed: int,
-                 slot: int = 1):
+                 slot: int = 1, wave: int = 0):
         self.server = server
         self.number = number
+        self.wave = wave
         self.slot = slot  # which of the server's arenas, 1 to max_arenas
         self.bots = bots
         self.names = [b.name for b in bots]
@@ -179,8 +196,9 @@ class Arena:
         self.emit({**state, "moves": records})
         self.world.step({n: {"ax": r["ax"], "ay": r["ay"]} for n, r in records.items()})
 
-    async def run(self) -> dict:
-        """Play the round in real time; returns its log record."""
+    async def run(self, t0: int | None = None) -> dict:
+        """Play the round in real time, tick `k` at `t0 + k * tick_ms` (perf_counter_ns; the
+        wave's shared clock); returns its log record."""
         rules = self.rules
         game_map = self.server.map
         round_start = {
@@ -199,7 +217,8 @@ class Arena:
             self.emit(round_start)
             self.broadcast(round_start)
             tick_ns = rules.tick_ms * 1_000_000
-            t0 = time.perf_counter_ns()
+            if t0 is None:
+                t0 = time.perf_counter_ns()
             state = None
             for k in range(1, rules.round_ticks + 2):
                 delay = t0 + k * tick_ns - time.perf_counter_ns()
@@ -226,6 +245,7 @@ class Arena:
         return {
             "type": "round_end",
             "round": self.number,
+            "wave": self.wave,
             "time": time.strftime("%Y-%m-%dT%H:%M:%S"),
             "results": [{**r, "ticks": rules.round_ticks, "late": self.late[r["id"]]}
                         for r in results],
@@ -233,7 +253,7 @@ class Arena:
 
 
 class ArenaServer:
-    """The queue, the running arenas, the leaderboard and the WebSocket handler."""
+    """The queue, the waves of arenas, the leaderboard and the WebSocket handler."""
 
     def __init__(self, game_map: Map, rules: Rules | None = None, fill_seconds: float = 10,
                  log: str | Path | None = None, replays: str | Path | None = None,
@@ -254,6 +274,11 @@ class ArenaServer:
         self.tasks: set[asyncio.Task] = set()
         self.leaderboard = Leaderboard()
         self.rounds = 0
+        self.wave = 0
+        self.wave_t0 = 0  # perf_counter_ns when the running wave's clock started
+        self.next_wave_ns: int | None = None  # when the next wave starts; None while a wave runs
+        self.met: dict[frozenset, int] = {}  # rounds each pair of names has shared
+        self.last_groups: set[frozenset] = set()  # the previous wave's groups
         if self.log and self.log.exists():
             with open(self.log, encoding="utf-8") as f:
                 for line in f:
@@ -262,6 +287,7 @@ class ArenaServer:
                     record = json.loads(line)
                     self.leaderboard.add(record)
                     self.rounds = max(self.rounds, record.get("round", 0))
+                    self.wave = max(self.wave, record.get("wave", 0))
         if self.replays:
             self.replays.mkdir(parents=True, exist_ok=True)
 
@@ -272,7 +298,7 @@ class ArenaServer:
             return 200, "text/html; charset=utf-8", (WEB_DIR / "leaderboard.html").read_bytes()
         if path == "/leaderboard.json":
             data = {"leaderboard": self.leaderboard.table(), "rounds": self.rounds,
-                    "connected": len(self.bots), "waiting": len(self.queue),
+                    "wave": self.wave, "connected": len(self.bots), "waiting": len(self.queue),
                     "arenas": sorted([{"round": a.number, "arena": a.slot, "players": a.names,
                                        "tick": a.playing} for a in self.arenas],
                                      key=lambda a: a["round"])}
@@ -294,48 +320,104 @@ class ArenaServer:
         task.add_done_callback(self.tasks.discard)
         return task
 
-    # --- the queue
+    # --- the queue and the waves
 
     def enqueue(self, bot: Bot) -> None:
-        bot.queued_at = time.perf_counter_ns()
         bot.told = None
         self.queue.append(bot)
-        self.tell_positions()  # every bot hears `queued`, even one whose round starts now
+        if self.next_wave_ns is None and not self.arenas:
+            self.next_wave_ns = time.perf_counter_ns() + self.fill_ns
         self.fill()
+        self.tell_positions()  # every bot hears `queued`, even one whose round starts now
+
+    def round_ns(self) -> int:
+        return (self.rules.round_ticks + 1) * self.rules.tick_ms * 1_000_000
 
     def tell_positions(self) -> None:
+        """Send `queued` to every waiting bot whose place or start time changed."""
         waiting = len(self.queue)
+        now = time.perf_counter_ns()
+        if self.next_wave_ns is not None:
+            first = self.next_wave_ns
+        else:  # a wave is running: the next starts a pause after its rounds end
+            first = self.wave_t0 + self.round_ns() + self.fill_ns
+        per_wave = ARENA_SIZE * self.max_arenas
         for i, bot in enumerate(self.queue, 1):
-            if bot.told != (i, waiting):
-                bot.told = (i, waiting)
-                bot.send({"type": "queued", "position": i, "waiting": waiting})
+            at = first + (i - 1) // per_wave * (self.round_ns() + self.fill_ns)
+            starts_in = max(0, -(-(at - now) // 1_000_000_000))
+            told = (i, waiting, starts_in)
+            if bot.told != told:
+                bot.told = told
+                bot.send({"type": "queued", "position": i, "waiting": waiting,
+                          "starts_in": starts_in})
+
+    def deal(self, names: list[str]) -> list[list[str]]:
+        """Split `names` into the wave's groups (`group_sizes`; names beyond them are left
+        out, they wait): of `DEAL_TRIES` seeded shuffles, the one whose groups repeat fewest of the
+        previous wave's groups, then hold the most pairs who never met, then the fewest past
+        meetings. Counts the new meetings."""
+        sizes = group_sizes(len(names), self.max_arenas)
+        names = names[:sum(sizes)]  # the longest waiting play
+        best, best_cost = None, None
+        for _ in range(DEAL_TRIES):
+            order = sorted(names)  # the shuffle depends on the seed, not on the queue order
+            self.rng.shuffle(order)
+            groups, at = [], 0
+            for size in sizes:
+                groups.append(order[at:at + size])
+                at += size
+            repeats = sum(frozenset(g) in self.last_groups for g in groups)
+            met = [self.met.get(frozenset(pair), 0)
+                   for g in groups for pair in itertools.combinations(g, 2)]
+            cost = (repeats, -met.count(0), sum(met))
+            if best_cost is None or cost < best_cost:
+                best, best_cost = groups, cost
+        for g in best:
+            for pair in itertools.combinations(g, 2):
+                key = frozenset(pair)
+                self.met[key] = self.met.get(key, 0) + 1
+        self.last_groups = {frozenset(g) for g in best}
+        return best
 
     def fill(self) -> None:
-        """Start every round that is due, then tell the waiting bots their places."""
+        """Start the next wave when it is due: every waiting bot (up to the arenas' room) is
+        dealt into arenas that all start on one clock."""
         self.queue = [b for b in self.queue if b.connected]
-        now = time.perf_counter_ns()
-        while self.queue and len(self.arenas) < self.max_arenas and (
-                len(self.queue) >= ARENA_SIZE or now - self.queue[0].queued_at >= self.fill_ns):
-            players, self.queue = self.queue[:ARENA_SIZE], self.queue[ARENA_SIZE:]
+        if self.next_wave_ns is None or time.perf_counter_ns() < self.next_wave_ns:
+            return
+        if not self.queue:
+            self.next_wave_ns = None
+            return
+        by_name = {b.name: b for b in self.queue}
+        groups = self.deal([b.name for b in self.queue])
+        dealt = {name for g in groups for name in g}
+        self.queue = [b for b in self.queue if b.name not in dealt]
+        self.wave += 1
+        self.next_wave_ns = None
+        self.say(f"wave {self.wave}: " + " | ".join(", ".join(g) for g in groups))
+        arenas = []
+        for slot, group in enumerate(groups, 1):
             self.rounds += 1
-            taken = {a.slot for a in self.arenas}
-            slot = min(n for n in range(1, self.max_arenas + 1) if n not in taken)
-            arena = Arena(self, self.rounds, players, self.rng.getrandbits(63), slot)
+            arena = Arena(self, self.rounds, [by_name[n] for n in group],
+                          self.rng.getrandbits(63), slot, self.wave)
             self.arenas.add(arena)
+            arenas.append(arena)
             self.say(f"round {arena.number}: {', '.join(arena.names)}")
-            self._spawn(self.play(arena))
+        self.wave_t0 = time.perf_counter_ns()
+        for arena in arenas:  # every round_start goes out now, before any arena's first tick
+            self._spawn(self.play(arena, self.wave_t0))
         self.tell_positions()
 
     async def scheduler(self) -> None:
-        """Start rounds whose fill time is up."""
+        """Start the next wave when its time is up."""
         while True:
             await asyncio.sleep(0.02)
-            if self.queue:
+            if self.next_wave_ns is not None:
                 self.fill()
 
-    async def play(self, arena: Arena) -> None:
+    async def play(self, arena: Arena, t0: int | None = None) -> None:
         try:
-            record = await arena.run()
+            record = await arena.run(t0)
             self.leaderboard.add(record)
             if self.log:
                 with open(self.log, "a", encoding="utf-8") as f:
@@ -347,7 +429,12 @@ class ArenaServer:
             for bot in arena.bots:
                 bot.arena = None
                 if bot.connected:
-                    self.enqueue(bot)
+                    bot.told = None
+                    self.queue.append(bot)
+            self.queue = [b for b in self.queue if b.connected]
+            if not self.arenas:  # the wave is over: the next one after the pause
+                self.next_wave_ns = time.perf_counter_ns() + self.fill_ns if self.queue else None
+            self.tell_positions()
             self.fill()
 
     # --- the WebSocket handlers

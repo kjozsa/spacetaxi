@@ -211,7 +211,10 @@ moves replays identically.
 
 Bots connect to the server over WebSocket at `ws://HOST:PORT/bot`. Every message is one JSON
 object, sent as one text frame. The bot's first message is `hello`; the server answers with
-`welcome`, then `queued` while the bot waits for a round. When the server sends an `error`, it
+`welcome`, then `queued` while the bot waits for a round. Rounds run in waves: every arena of a
+wave starts on the same tick clock, and the next wave starts a pause after all of them end. At
+the start of a wave the waiting bots are dealt into arenas of at most 4, as even as possible, and
+groups are reshuffled every wave; a bot that joins mid-wave plays from the next wave. When the server sends an `error`, it
 closes the socket right after it.
 
 Spectators (the live viewer at `http://HOST:PORT/watch`) connect to `ws://HOST:PORT/spectate`
@@ -256,12 +259,13 @@ Sent once when a bot joins. Carries the bot's taxi id and the rules (every const
 
 ### `queued`
 
-Sent after `welcome` while the bot waits for a round to start, and again whenever its place in
-the queue changes. `position` is the bot's place in the queue, from `1`; `waiting` is the
-number of bots in the queue.
+Sent after `welcome` and after every `round_end` while the bot waits for a round to start, and
+again whenever its place in the queue or its start time changes. `position` is the bot's place
+in the queue, from `1`; `waiting` is the number of bots in the queue; `starts_in` is the
+estimated number of whole seconds until the bot's round starts (an integer, `0` when due).
 
 ```json
-{"type": "queued", "position": 3, "waiting": 5}
+{"type": "queued", "position": 3, "waiting": 5, "starts_in": 8}
 ```
 
 ### `round_start`

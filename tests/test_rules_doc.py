@@ -70,7 +70,7 @@ def test_message_examples_shapes():
     examples = {v["type"]: v for v in json_examples(RULES.read_text())
                 if isinstance(v, dict) and "type" in v}
     assert examples["hello"] == {"type": "hello", "name": "alice", "protocol": 1}
-    assert examples["queued"] == {"type": "queued", "position": 3, "waiting": 5}
+    assert examples["queued"] == {"type": "queued", "position": 3, "waiting": 5, "starts_in": 8}
     assert set(examples["error"]) == {"type", "code", "message"}
     assert type(examples["move"]["tick"]) is int
     text = RULES.read_text()

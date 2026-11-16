@@ -34,7 +34,7 @@ const COLS = ["name", "rounds", "total_money", "avg_money", "deliveries", "crash
 
 function render(data) {
   document.getElementById("info").textContent =
-    `${data.rounds} rounds played, ${data.connected} bots connected, ${data.waiting} waiting`;
+    `wave ${data.wave}, ${data.rounds} rounds played, ${data.connected} bots connected, ${data.waiting} waiting`;
   document.getElementById("arenas").textContent = data.arenas.map(
     a => `round ${a.round} (tick ${a.tick}): ${a.players.join(", ")}`).join("  |  ");
   const body = document.getElementById("rows");
