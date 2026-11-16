@@ -1,4 +1,5 @@
-"""Command-line entry point. Subcommands: map, run, show, view, play, new-bot, wifitest, serve."""
+"""Command-line entry point. Subcommands: map, run, show, view, play, new-bot, wifitest, serve,
+connect."""
 
 import argparse
 import asyncio
@@ -10,7 +11,7 @@ from pathlib import Path
 from spacetaxi import __version__
 from spacetaxi.maps import MapError, load_map
 from spacetaxi.play import build_html as build_play_html
-from spacetaxi.runner import BOTS_DIR, BotError, format_table, run
+from spacetaxi.runner import BOTS_DIR, BotError, format_table, load_bot, run
 from spacetaxi.sim import Rules
 from spacetaxi.show import ReplayError, frame, get_round, get_tick, load_replay, render
 from spacetaxi.viewer import build_html, make_server
@@ -119,6 +120,19 @@ def build_parser() -> argparse.ArgumentParser:
     serve_cmd.add_argument("--replays", metavar="DIR",
                            help="write each round as a replay file in this directory")
     serve_cmd.set_defaults(func=cmd_serve)
+
+    connect_cmd = commands.add_parser(
+        "connect", help="fly a local bot in the arena: carries its welcome/start/move over "
+                        "the network")
+    connect_cmd.add_argument(
+        "--bot", required=True,
+        help="a bundled bot name (idle, random, greedy, pilot) or a .py file path")
+    connect_cmd.add_argument("--name", required=True,
+                             help="your taxi's name: 1 to 12 characters of A-Z a-z 0-9 _ -")
+    connect_cmd.add_argument(
+        "--server", default=None,
+        help="the arena's bot URL (default: $SPACETAXI_SERVER, else ws://localhost:8000/bot)")
+    connect_cmd.set_defaults(func=cmd_connect)
     return parser
 
 
@@ -361,6 +375,35 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_connect(args: argparse.Namespace) -> int:
+    from spacetaxi.connect import Client, Fatal, server_url
+    from spacetaxi.server import NAME
+
+    url = server_url(args.server)
+    if not url.startswith("ws://"):
+        print(f"spacetaxi connect: error: the server must be a ws://HOST:PORT/bot URL, "
+              f"got {url!r}", file=sys.stderr)
+        return 2
+    if not NAME.fullmatch(args.name):
+        print("spacetaxi connect: error: --name: 1 to 12 characters of A-Z a-z 0-9 _ -",
+              file=sys.stderr)
+        return 2
+    try:
+        bot = load_bot(args.bot)
+    except BotError as exc:
+        print(f"spacetaxi connect: error: {exc}", file=sys.stderr)
+        return 2
+    client = Client(url, args.name, bot, say=lambda text: print(text, flush=True))
+    try:
+        asyncio.run(client.run())
+    except KeyboardInterrupt:
+        print()
+    except Fatal as exc:
+        print(f"spacetaxi connect: error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 NEW_BOT_HEADER = """\
 # A spacetaxi bot, started as a copy of the bundled `greedy` house bot. Make it better!
 #
@@ -381,6 +424,10 @@ NEW_BOT_HEADER = """\
 #   spacetaxi show replay.jsonl --watch
 #   spacetaxi show replay.jsonl --tick 100
 # The `debug` text a move returns is free text for you; the simulation ignores it.
+#
+# Fly it in the arena (no network code needed: connect calls the same three functions):
+#   spacetaxi connect --bot ./mybot.py --name alice --server ws://HOST:8000/bot
+# or set SPACETAXI_SERVER=ws://HOST:8000/bot once and leave --server out.
 
 """
 
