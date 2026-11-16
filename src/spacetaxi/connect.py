@@ -132,7 +132,8 @@ class Client:
         elif kind == "welcome":
             self.call("welcome", msg)
         elif kind == "queued":
-            self.say(f"queued: position {msg.get('position')} of {msg.get('waiting')} waiting")
+            self.say(f"queued: position {msg.get('position')} of {msg.get('waiting')} waiting, "
+                     f"starts in {msg.get('starts_in')} s")
         elif kind == "round_start":
             self.round = msg.get("round")
             self.move_failed = False

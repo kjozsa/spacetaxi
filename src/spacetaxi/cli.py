@@ -112,8 +112,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     serve_cmd.add_argument(
         "--fill-seconds", type=float, default=10,
-        help="start a round with fewer than 4 bots once the first has waited this long "
-             "(default 10)")
+        help="seconds from the first bot joining (and from the end of every wave) to the "
+             "start of the next wave (default 10)")
+    serve_cmd.add_argument("--seed", type=int, default=None,
+                           help="seed for the deals and the rounds (default random)")
     serve_cmd.add_argument("--log", metavar="FILE",
                            help="append each round_end as a JSON line; the leaderboard is "
                                 "rebuilt from it on restart")
@@ -350,7 +352,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
             raise RuleError("tick_ms, deadline_ms and round_ticks must be positive")
         game_map = load_map(args.map)
         arena = ArenaServer(game_map, rules, args.fill_seconds, log=args.log,
-                            replays=args.replays, say=lambda text: print(text, flush=True))
+                            replays=args.replays, seed=args.seed, say=lambda text: print(text, flush=True))
     except (MapError, RuleError, OSError, ValueError, KeyError) as exc:
         print(f"spacetaxi serve: error: {exc}", file=sys.stderr)
         return 2
@@ -358,7 +360,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     async def serve() -> None:
         server = await arena.start(None, args.port)
         print(f"arena on {args.map}: tick_ms={rules.tick_ms} deadline_ms={rules.deadline_ms} "
-              f"round_ticks={rules.round_ticks}, fill {args.fill_seconds:g} s")
+              f"round_ticks={rules.round_ticks}, waves every {args.fill_seconds:g} s after the last")
         for host in lan_addresses() or ["localhost"]:
             print(f"  leaderboard http://{host}:{args.port}/   bots ws://{host}:{args.port}/bot")
         print("Ctrl-C stops", flush=True)

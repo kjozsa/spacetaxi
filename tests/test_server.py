@@ -11,7 +11,7 @@ import time
 
 from spacetaxi import ws
 from spacetaxi.maps import load_map
-from spacetaxi.server import ArenaServer, Leaderboard
+from spacetaxi.server import ArenaServer, Leaderboard, group_sizes
 from spacetaxi.show import load_replay
 from spacetaxi.sim import Rules
 from spacetaxi.viewer import build_html
@@ -71,41 +71,120 @@ async def play_round(sock: ws.WebSocket, answer=lambda tick: {"ax": 0, "ay": -1,
             seen["end"], seen["end_at"] = msg, time.monotonic()
 
 
-def test_six_bots_fill_two_parallel_arenas_and_requeue():
+def test_six_bots_play_one_wave_of_two_arenas_that_start_together_and_requeue():
     async def main():
         server = make_server(fill_seconds=0.3)
         srv, port = await start(server)
+        joined = time.monotonic()
         socks = [await join(port, f"bot{i}") for i in range(6)]
         seen = await asyncio.gather(*(play_round(s) for s in socks))
         for s in socks:
             await s.close()
         srv.close()
-        return seen
+        return joined, seen, json.loads(server.http("/leaderboard.json")[2])
 
-    seen = asyncio.run(main())
+    joined, seen, board = asyncio.run(main())
     for i, s in enumerate(seen):
         assert s["welcome"]["id"] == f"bot{i}" and s["welcome"]["rules"] == RULES.to_dict()
-        assert s["queued"][0]["position"] >= 1
+        assert s["queued"][0]["position"] >= 1 and type(s["queued"][0]["starts_in"]) is int
         assert s["ticks"] == RULES.round_ticks
         assert s["end"]["round"] == s["start"]["round"]
-        assert s["requeued"]["type"] == "queued"
+        assert s["requeued"]["type"] == "queued" and s["requeued"]["starts_in"] >= 0
     rounds = {}
     for s in seen:
         rounds.setdefault(s["start"]["round"], s)
-    assert sorted(len(s["start"]["players"]) for s in rounds.values()) == [2, 4]
-    first, second = sorted(rounds.values(), key=lambda s: s["start_at"])
-    assert first["start"]["players"] == ["bot0", "bot1", "bot2", "bot3"]
-    assert second["start"]["players"] == ["bot4", "bot5"]
-    # the 2-bot round waited the fill time, then ran while the 4-bot round was still on
-    assert second["start_at"] - first["start_at"] >= 0.25
-    assert second["start_at"] < first["end_at"]
-    # the late 2 were told their places while waiting
-    assert seen[5]["queued"][-1] == {"type": "queued", "position": 2, "waiting": 2}
+    assert sorted(len(s["start"]["players"]) for s in rounds.values()) == [3, 3]
+    starts = sorted(s["start_at"] for s in seen)
+    # the wave waited the fill time from the first join, then both arenas started together
+    assert starts[0] - joined >= 0.25
+    assert starts[-1] - starts[0] < 0.05
+    assert board["wave"] == 1 and board["rounds"] == 2
+
+
+def test_six_bots_six_waves_every_pair_meets_and_no_group_repeats():
+    rules = Rules(tick_ms=20, deadline_ms=15, round_ticks=3)
+    lines = []
+
+    async def bot(port, name, waves):
+        sock = await join(port, name)
+        ends = 0
+        while ends < waves:
+            msg = await recv(sock)
+            if msg["type"] == "tick":
+                await sock.send(json.dumps({"type": "move", "ax": 0, "ay": 0, "tick": msg["tick"]}))
+            elif msg["type"] == "round_end":
+                ends += 1
+        await sock.close()
+
+    async def main():
+        server = ArenaServer(load_map("cavern"), rules, 0.05, seed=1, say=lines.append)
+        srv, port = await start(server)
+        names = ["pia", "gus", "rnd", "gina", "greg", "ace"]
+        await asyncio.gather(*(bot(port, n, 6) for n in names))
+        srv.close()
+        return names
+
+    names = asyncio.run(main())
+    waves = [line.split(": ", 1)[1] for line in lines if line.startswith("wave ")][:6]
+    assert len(waves) == 6
+    groups = [[frozenset(g.split(", ")) for g in w.split(" | ")] for w in waves]
+    met = set()
+    for wave in groups:
+        assert sorted(len(g) for g in wave) == [3, 3]
+        for g in wave:
+            met |= {frozenset((a, b)) for a in g for b in g if a != b}
+    assert met == {frozenset((a, b)) for a in names for b in names if a != b}
+    for before, after in zip(groups, groups[1:]):
+        assert not set(before) & set(after)
+
+
+def test_group_sizes():
+    assert group_sizes(0) == []
+    assert group_sizes(1) == [1]
+    assert group_sizes(5) == [3, 2]
+    assert group_sizes(6) == [3, 3]
+    assert group_sizes(7) == [4, 3]
+    assert group_sizes(12) == [4, 4, 4]
+    assert group_sizes(13) == [4, 4, 4]
+    server = make_server()
+    for n in (1, 5, 6, 7, 12, 13):
+        groups = server.deal([f"b{i}" for i in range(n)])
+        assert [len(g) for g in groups] == group_sizes(n)
+        assert len({name for g in groups for name in g}) == min(n, 12)
+
+
+def test_a_bot_joining_mid_wave_plays_from_the_next_wave():
+    async def main():
+        server = make_server(fill_seconds=0.1)
+        srv, port = await start(server)
+        early = await join(port, "early")
+        first = asyncio.ensure_future(play_round(early))
+        while not any(a.playing > 2 for a in server.arenas):
+            await asyncio.sleep(0.01)
+        late = await join(port, "late")
+        welcome, queued = await recv(late), await recv(late)
+        await first
+        joined_wave = server.wave
+        second = await asyncio.gather(play_round(early), play_round(late))
+        for s in (early, late):
+            await s.close()
+        srv.close()
+        return welcome, queued, joined_wave, second
+
+    welcome, queued, joined_wave, (early, late) = asyncio.run(main())
+    assert welcome["type"] == "welcome"
+    # round 1 has ~17 ticks of 50 ms left, then the 0.1 s pause: it starts within 2 s
+    assert {k: v for k, v in queued.items() if k != "starts_in"} == {
+        "type": "queued", "position": 1, "waiting": 1}
+    assert 1 <= queued["starts_in"] <= 2
+    assert joined_wave == 1
+    assert late["start"]["round"] == 2 and sorted(late["start"]["players"]) == ["early", "late"]
+    assert early["start"]["round"] == 2
 
 
 def test_silent_and_vanishing_bots_coast_and_the_round_ends_on_time():
     async def main():
-        server = make_server(fill_seconds=5)
+        server = make_server(fill_seconds=0.2)
         srv, port = await start(server)
         socks = [await join(port, n) for n in ("fast1", "fast2", "silent", "quitter")]
         tasks = [play_round(socks[0]), play_round(socks[1]),
@@ -144,7 +223,7 @@ def test_wrong_tick_move_coasts_and_replay_opens_in_viewer(tmp_path):
         good, wrong = await join(port, "good"), None
         seen_good = asyncio.create_task(
             play_round(good, answer=lambda t: {"ax": 0, "ay": -1, "tick": t}))
-        # a second round in parallel, answering with the previous tick's number
+        # joins mid-wave, so it plays the next wave, answering with the previous tick's number
         wrong = await join(port, "wrong")
         seen_wrong = await play_round(wrong, answer=lambda t: {"ax": 1, "ay": -1, "tick": t - 1})
         await seen_good
@@ -159,7 +238,7 @@ def test_wrong_tick_move_coasts_and_replay_opens_in_viewer(tmp_path):
     moves = [rnd["ticks"][t]["moves"]["wrong"] for t in sorted(rnd["ticks"])]
     assert len(moves) == RULES.round_ticks
     assert all(m == {"ax": 0, "ay": 0, "coast": True} for m in moves)
-    # with no fill time each bot flies alone, and goes again as soon as its round ends
+    # with no fill time the first bot's wave starts as it joins, and it flies alone
     good = load_replay(str(tmp_path / "replays" / "round-00001.jsonl"))
     assert next(iter(good.values()))["start"]["players"] == ["good"]
     good_moves = [t["moves"]["good"] for t in next(iter(good.values()))["ticks"].values()]
@@ -211,6 +290,7 @@ def test_log_rebuilds_the_leaderboard_on_restart(tmp_path):
     after = json.loads(restarted.http("/leaderboard.json")[2])
     assert after["leaderboard"] == before["leaderboard"]
     assert after["rounds"] == before["rounds"] == 1
+    assert after["wave"] == before["wave"] == 1
     assert {r["name"] for r in after["leaderboard"]} == {"a", "b", "c"}
     row = next(r for r in after["leaderboard"] if r["name"] == "c")
     assert set(row) == {"name", "rounds", "total_money", "avg_money", "deliveries", "crashes",
@@ -291,9 +371,9 @@ def test_spectator_gets_every_arena_with_moves_and_slots():
     assert first == {"type": "spectate", "arenas": 3}
     starts = [m for m in seen if m["type"] == "round_start"]
     slots = sorted((m["arena"], m["round"], len(m["players"])) for m in starts)
-    # rounds 1 and 2 side by side; the 4 of round 1 may start round 3 in the freed slot 1
-    assert (1, 1, 4) in slots and (2, 2, 1) in slots
-    assert all(arena == 1 for arena, rnd, _ in slots if rnd == 3)
+    # wave 1: rounds 1 and 2 side by side, 5 bots dealt 3 and 2; wave 2 reuses the slots
+    assert [x for x in slots if x[1] in (1, 2)] == [(1, 1, 3), (2, 2, 2)]
+    assert all((arena, rnd) in ((1, 3), (2, 4)) for arena, rnd, _ in slots if rnd > 2)
     starts = [m for m in starts if m["round"] in (1, 2)]
     ticks = [m for m in seen if m["type"] == "tick" and m["round"] in (1, 2)]
     assert {(m["arena"], m["round"]) for m in ticks} == {(1, 1), (2, 2)}

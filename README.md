@@ -73,20 +73,25 @@ The procedure and the go/no-go reading are in [docs/venue-wifi-test.md](docs/ven
 
 ```sh
 uv run spacetaxi serve --map cavern --port 8000 --log results.jsonl --replays replays/
-uv run spacetaxi serve --rule round_ticks=300 --fill-seconds 5   # shorter rounds, quicker fill
+uv run spacetaxi serve --rule round_ticks=300 --fill-seconds 5 --seed 1   # shorter rounds and pauses
 ```
 
 Bots connect to `ws://HOST:8000/bot` (protocol in [docs/rules.md](docs/rules.md)) and wait in one
-queue. A round of up to 4 taxis starts in a new arena as soon as 4 bots are waiting, or once the
-first in line has waited `--fill-seconds`; up to 3 arenas run side by side, and after its round
-every bot goes straight back to the end of the queue. A bot that disconnects mid-round coasts until
+queue. Rounds run in waves: a wave starts `--fill-seconds` (default 10) after the first bot
+joins an idle server, and again `--fill-seconds` after every arena of the previous wave has ended
+(the pause for the podium and the leaderboard). At wave start the waiting bots are dealt into up
+to 3 arenas of at most 4, as even as possible (7 bots play 4 + 3, 6 play 3 + 3), and all arenas
+start together; bots beyond 12 wait for the next wave. The deal is a shuffle (`--seed`, default
+random) that prefers bots who have met least so far, so groups mix and averages compare. A bot
+that joins mid-wave gets `queued` with `starts_in` and plays from the next wave; after its round
+every bot goes back to the queue, and the server prints each wave's groups. A bot that disconnects mid-round coasts until
 the round ends. `/` is the leaderboard (`/leaderboard.json` its data); with `--log` each round's
 results are appended as a JSON line and the leaderboard is rebuilt from it on restart; with
 `--replays` each round is written as a replay for `spacetaxi view`.
 
 `/watch` is the neon viewer, live: put it on the projector. It follows the arena whose round
 started last, or the one picked at the bottom right, with the leaderboard beside it; between
-rounds it shows the INSERT COIN splash with the queue length. Click once to start the sound.
+rounds it shows the INSERT COIN splash with the queue length; the leaderboard shows the wave. Click once to start the sound.
 
 ## Shortcuts (fish)
 

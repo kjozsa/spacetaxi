@@ -850,7 +850,8 @@ async function loadLeaderboard() {
   window.spacetaxi.waiting = data.waiting;
   window.spacetaxi.leaderboard = data.leaderboard.map(r => r.name);
   queueEl.textContent = `${data.waiting} ${data.waiting === 1 ? "BOT" : "BOTS"} IN THE QUEUE`;
-  lbSub.textContent = `${data.rounds} ROUNDS \u00b7 AVG $ PER ROUND`;
+  lbSub.textContent = `WAVE ${data.wave} \u00b7 ${data.rounds} ROUNDS \u00b7 AVG $`;
+  window.spacetaxi.wave = data.wave;
   lbRows.replaceChildren(...data.leaderboard.slice(0, 14).map((r, n) => {
     const li = document.createElement("li");
     for (const [cls, text] of [["rank", `${n + 1}.`], ["name", r.name.toUpperCase()],
