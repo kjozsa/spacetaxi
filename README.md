@@ -103,4 +103,19 @@ uv run spacetaxi run --bots ./mybot.py,pilot --rounds 100 --json
 ```
 
 `new-bot` writes a copy of the `greedy` house bot with a header that explains the bot interface,
-how to evaluate it and how to watch a replay.
+how to evaluate it, how to watch a replay and how to connect it.
+
+## Fly your bot in the arena
+
+```sh
+uv run spacetaxi connect --bot mybot.py --name alice --server ws://HOST:8000/bot
+export SPACETAXI_SERVER=ws://HOST:8000/bot      # fish: set -x SPACETAXI_SERVER ws://HOST:8000/bot
+uv run spacetaxi connect --bot mybot.py --name alice
+```
+
+`connect` loads the bot just as `run` does (a bundled name or a `.py` path) and calls the same
+`welcome`, `start` and `move`: no network code to write. `--server` defaults to
+`$SPACETAXI_SERVER`, then `ws://localhost:8000/bot`. It prints your place in the queue, each round
+start with your opponents, each round's results, and server errors in plain words. When `move`
+raises, the traceback is printed once per round and the taxi coasts that tick; a lost connection
+is retried every 2 s until Ctrl-C.
