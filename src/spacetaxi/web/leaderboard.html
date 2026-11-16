@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>spacetaxi leaderboard</title>
+<style>
+  body { margin: 0; padding: 24px; background: #0b0e1a; color: #e8ecff;
+         font: 22px/1.4 system-ui, sans-serif; }
+  h1 { font-size: 28px; margin: 0 0 4px; }
+  #info, #arenas { color: #9aa3cc; margin-bottom: 16px; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { padding: 6px 12px; border-bottom: 1px solid #2a3050; text-align: right;
+           font-variant-numeric: tabular-nums; }
+  th:nth-child(2), td:nth-child(2) { text-align: left; }
+  th { color: #9aa3cc; font-weight: normal; }
+  td.neg { color: #ff7a7a; }
+</style>
+</head>
+<body>
+<h1>spacetaxi leaderboard</h1>
+<div id="info">waiting for the server ...</div>
+<div id="arenas"></div>
+<table>
+  <thead><tr>
+    <th>#</th><th>name</th><th>rounds</th><th>total money</th><th>avg money</th>
+    <th>deliveries</th><th>crashes</th><th>late %</th>
+  </tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+<script>
+"use strict";
+const COLS = ["name", "rounds", "total_money", "avg_money", "deliveries", "crashes", "late_pct"];
+
+function render(data) {
+  document.getElementById("info").textContent =
+    `${data.rounds} rounds played, ${data.connected} bots connected, ${data.waiting} waiting`;
+  document.getElementById("arenas").textContent = data.arenas.map(
+    a => `round ${a.round} (tick ${a.tick}): ${a.players.join(", ")}`).join("  |  ");
+  const body = document.getElementById("rows");
+  body.replaceChildren(...data.leaderboard.map((r, i) => {
+    const tr = document.createElement("tr");
+    for (const v of [i + 1, ...COLS.map(c => r[c])]) {
+      const td = document.createElement("td");
+      td.textContent = v;
+      if (typeof v === "number" && v < 0) td.className = "neg";
+      tr.appendChild(td);
+    }
+    return tr;
+  }));
+}
+
+async function poll() {
+  try {
+    const res = await fetch("/leaderboard.json", {cache: "no-store"});
+    render(await res.json());
+  } catch (e) {
+    document.getElementById("info").textContent = "server unreachable, retrying ...";
+  }
+  setTimeout(poll, 2000);
+}
+poll();
+</script>
+</body>
+</html>

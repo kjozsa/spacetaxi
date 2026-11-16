@@ -1,0 +1,266 @@
+"""The arena server (`spacetaxi serve`): queue, parallel arenas, timing, errors, leaderboard."""
+
+import asyncio
+import json
+import os
+import socket
+import subprocess
+import sys
+import time
+
+from spacetaxi import ws
+from spacetaxi.maps import load_map
+from spacetaxi.server import ArenaServer, Leaderboard
+from spacetaxi.show import load_replay
+from spacetaxi.sim import Rules
+from spacetaxi.viewer import build_html
+
+RULES = Rules(tick_ms=50, deadline_ms=30, round_ticks=20)
+
+
+def make_server(fill_seconds=0.3, **kw) -> ArenaServer:
+    return ArenaServer(load_map("cavern"), RULES, fill_seconds, seed=1, **kw)
+
+
+async def start(server: ArenaServer) -> tuple[asyncio.Server, int]:
+    srv = await server.start("127.0.0.1", 0)
+    return srv, srv.sockets[0].getsockname()[1]
+
+
+async def join(port: int, name: str, protocol=1) -> ws.WebSocket:
+    sock = await ws.connect(f"ws://127.0.0.1:{port}/bot")
+    await sock.send(json.dumps({"type": "hello", "name": name, "protocol": protocol}))
+    return sock
+
+
+async def recv(sock: ws.WebSocket, timeout: float = 5):
+    async with asyncio.timeout(timeout):
+        text = await sock.recv()
+    return None if text is None else json.loads(text)
+
+
+async def play_round(sock: ws.WebSocket, answer=lambda tick: {"ax": 0, "ay": -1, "tick": tick},
+                     quit_after: int | None = None) -> dict:
+    """Read until `round_end` and the `queued` after it, answering each tick with `answer`
+    (None: stay silent). Returns what it saw, with receive times."""
+    seen = {"welcome": None, "queued": [], "start": None, "ticks": 0, "end": None,
+            "requeued": None, "start_at": None, "end_at": None}
+    while True:
+        msg = await recv(sock)
+        assert msg is not None, "the server closed the socket"
+        kind = msg["type"]
+        if kind == "welcome":
+            seen["welcome"] = msg
+        elif kind == "queued":
+            if seen["end"]:
+                seen["requeued"] = msg
+                return seen
+            seen["queued"].append(msg)
+        elif kind == "round_start":
+            seen["start"], seen["start_at"] = msg, time.monotonic()
+        elif kind == "tick":
+            seen["ticks"] += 1
+            if quit_after is not None and seen["ticks"] > quit_after:
+                await sock.close()
+                return seen
+            move = answer(msg["tick"])
+            if move is not None:
+                await sock.send(json.dumps({"type": "move", **move}))
+        elif kind == "round_end":
+            seen["end"], seen["end_at"] = msg, time.monotonic()
+
+
+def test_six_bots_fill_two_parallel_arenas_and_requeue():
+    async def main():
+        server = make_server(fill_seconds=0.3)
+        srv, port = await start(server)
+        socks = [await join(port, f"bot{i}") for i in range(6)]
+        seen = await asyncio.gather(*(play_round(s) for s in socks))
+        for s in socks:
+            await s.close()
+        srv.close()
+        return seen
+
+    seen = asyncio.run(main())
+    for i, s in enumerate(seen):
+        assert s["welcome"]["id"] == f"bot{i}" and s["welcome"]["rules"] == RULES.to_dict()
+        assert s["queued"][0]["position"] >= 1
+        assert s["ticks"] == RULES.round_ticks
+        assert s["end"]["round"] == s["start"]["round"]
+        assert s["requeued"]["type"] == "queued"
+    rounds = {}
+    for s in seen:
+        rounds.setdefault(s["start"]["round"], s)
+    assert sorted(len(s["start"]["players"]) for s in rounds.values()) == [2, 4]
+    first, second = sorted(rounds.values(), key=lambda s: s["start_at"])
+    assert first["start"]["players"] == ["bot0", "bot1", "bot2", "bot3"]
+    assert second["start"]["players"] == ["bot4", "bot5"]
+    # the 2-bot round waited the fill time, then ran while the 4-bot round was still on
+    assert second["start_at"] - first["start_at"] >= 0.25
+    assert second["start_at"] < first["end_at"]
+    # the late 2 were told their places while waiting
+    assert seen[5]["queued"][-1] == {"type": "queued", "position": 2, "waiting": 2}
+
+
+def test_silent_and_vanishing_bots_coast_and_the_round_ends_on_time():
+    async def main():
+        server = make_server(fill_seconds=5)
+        srv, port = await start(server)
+        socks = [await join(port, n) for n in ("fast1", "fast2", "silent", "quitter")]
+        tasks = [play_round(socks[0]), play_round(socks[1]),
+                 play_round(socks[2], answer=lambda tick: None),
+                 play_round(socks[3], quit_after=5)]
+        seen = await asyncio.gather(*tasks)
+        # the quitter's name is free again once it is gone
+        again = await join(port, "quitter")
+        welcome = await recv(again)
+        await again.close()
+        for s in socks:
+            await s.close()
+        srv.close()
+        return seen, welcome, server.leaderboard.table()
+
+    seen, welcome, table = asyncio.run(main())
+    assert welcome["type"] == "welcome"
+    fast = seen[0]
+    duration = fast["end_at"] - fast["start_at"]
+    expected = (RULES.round_ticks + 1) * RULES.tick_ms / 1000
+    assert expected - 0.02 <= duration <= expected + 0.25
+    assert seen[2]["end"] is not None and seen[2]["ticks"] == RULES.round_ticks
+    late = {r["name"]: r["late_pct"] for r in table}
+    assert late["silent"] == 100.0
+    assert late["quitter"] >= 70.0
+    assert late["fast1"] <= 10.0 and late["fast2"] <= 10.0
+    results = {r["id"]: r for r in fast["end"]["results"]}
+    assert set(results) == {"fast1", "fast2", "silent", "quitter"}
+    assert set(results["fast1"]) == {"id", "money", "deliveries", "crashes"}
+
+
+def test_wrong_tick_move_coasts_and_replay_opens_in_viewer(tmp_path):
+    async def main():
+        server = make_server(fill_seconds=0, replays=tmp_path / "replays")
+        srv, port = await start(server)
+        good, wrong = await join(port, "good"), None
+        seen_good = asyncio.create_task(
+            play_round(good, answer=lambda t: {"ax": 0, "ay": -1, "tick": t}))
+        # a second round in parallel, answering with the previous tick's number
+        wrong = await join(port, "wrong")
+        seen_wrong = await play_round(wrong, answer=lambda t: {"ax": 1, "ay": -1, "tick": t - 1})
+        await seen_good
+        await good.close()
+        await wrong.close()
+        srv.close()
+        return seen_wrong
+
+    seen = asyncio.run(main())
+    path = tmp_path / "replays" / f"round-{seen['start']['round']:05d}.jsonl"
+    rnd = load_replay(str(path))[seen["start"]["round"]]
+    moves = [rnd["ticks"][t]["moves"]["wrong"] for t in sorted(rnd["ticks"])]
+    assert len(moves) == RULES.round_ticks
+    assert all(m == {"ax": 0, "ay": 0, "coast": True} for m in moves)
+    # with no fill time each bot flies alone, and goes again as soon as its round ends
+    good = load_replay(str(tmp_path / "replays" / "round-00001.jsonl"))
+    assert next(iter(good.values()))["start"]["players"] == ["good"]
+    good_moves = [t["moves"]["good"] for t in next(iter(good.values()))["ticks"].values()]
+    assert sum(not m["coast"] for m in good_moves) >= RULES.round_ticks - 2
+    assert "<html" in build_html(str(path)).lower()
+
+
+def test_join_errors_close_the_socket():
+    async def main():
+        server = make_server(fill_seconds=60)
+        srv, port = await start(server)
+        alice = await join(port, "alice")
+        assert (await recv(alice))["type"] == "welcome"
+        out = {}
+        for key, name, protocol in [("name_taken", "alice", 1), ("bad_name", "no spaces", 1),
+                                    ("bad_name", "x" * 13, 1), ("bad_protocol", "bob", 2)]:
+            sock = await join(port, name, protocol)
+            msg = await recv(sock)
+            assert await recv(sock) is None
+            out.setdefault(key, []).append(msg)
+        await alice.close()
+        srv.close()
+        return out
+
+    out = asyncio.run(main())
+    for code, msgs in out.items():
+        for msg in msgs:
+            assert msg["type"] == "error" and msg["code"] == code and msg["message"]
+
+
+def test_log_rebuilds_the_leaderboard_on_restart(tmp_path):
+    log = tmp_path / "results.jsonl"
+
+    async def main():
+        server = make_server(fill_seconds=0.1, log=log)
+        srv, port = await start(server)
+        socks = [await join(port, n) for n in ("a", "b", "c")]
+        await asyncio.gather(play_round(socks[0]), play_round(socks[1]),
+                             play_round(socks[2], answer=lambda t: None))
+        for s in socks:
+            await s.close()
+        srv.close()
+        return json.loads(server.http("/leaderboard.json")[2])
+
+    before = asyncio.run(main())
+    lines = log.read_text().splitlines()
+    assert len(lines) == 1 and json.loads(lines[0])["type"] == "round_end"
+    restarted = make_server(log=log)
+    after = json.loads(restarted.http("/leaderboard.json")[2])
+    assert after["leaderboard"] == before["leaderboard"]
+    assert after["rounds"] == before["rounds"] == 1
+    assert {r["name"] for r in after["leaderboard"]} == {"a", "b", "c"}
+    row = next(r for r in after["leaderboard"] if r["name"] == "c")
+    assert set(row) == {"name", "rounds", "total_money", "avg_money", "deliveries", "crashes",
+                        "late_pct"}
+    assert row["rounds"] == 1 and row["late_pct"] == 100.0
+    status, ctype, body = restarted.http("/")
+    assert status == 200 and b"leaderboard.json" in body
+
+
+def test_leaderboard_totals_and_order():
+    board = Leaderboard()
+    board.add({"results": [{"id": "a", "money": 100, "deliveries": 2, "crashes": 1,
+                            "ticks": 10, "late": 1},
+                           {"id": "b", "money": 300, "deliveries": 4, "crashes": 0,
+                            "ticks": 10, "late": 0}]})
+    board.add({"results": [{"id": "a", "money": 50, "deliveries": 1, "crashes": 0,
+                            "ticks": 10, "late": 3}]})
+    assert board.table() == [
+        {"name": "b", "rounds": 1, "total_money": 300, "avg_money": 300.0, "deliveries": 4,
+         "crashes": 0, "late_pct": 0.0},
+        {"name": "a", "rounds": 2, "total_money": 150, "avg_money": 75.0, "deliveries": 3,
+         "crashes": 1, "late_pct": 20.0},
+    ]
+
+
+def test_cli_serve_prints_lan_urls():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+    proc = subprocess.Popen([sys.executable, "-m", "spacetaxi", "serve", "--port", str(port),
+                             "--fill-seconds", "2"], stdout=subprocess.PIPE, text=True, env=env)
+    try:
+        lines = []
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            line = proc.stdout.readline()
+            if not line:
+                break
+            lines.append(line)
+            if "Ctrl-C" in line:
+                break
+        text = "".join(lines)
+        assert f"ws://" in text and f":{port}/bot" in text and f":{port}/" in text
+    finally:
+        proc.terminate()
+        proc.wait(5)
+
+
+def test_cli_serve_bad_arguments():
+    from spacetaxi.cli import main
+    assert main(["serve", "--map", "nope"]) == 2
+    assert main(["serve", "--rule", "tick_ms=0"]) == 2
+    assert main(["serve", "--fill-seconds", "-1"]) == 2

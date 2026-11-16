@@ -1,4 +1,4 @@
-"""Command-line entry point. Subcommands: map, run, show, view, play, new-bot, wifitest."""
+"""Command-line entry point. Subcommands: map, run, show, view, play, new-bot, wifitest, serve."""
 
 import argparse
 import asyncio
@@ -99,6 +99,26 @@ def build_parser() -> argparse.ArgumentParser:
     wifi_cmd.add_argument("--name", default="lab",
                           help="name of the headless clients, numbered name-1, name-2, ...")
     wifi_cmd.set_defaults(func=cmd_wifitest)
+
+    serve_cmd = commands.add_parser(
+        "serve", help="the arena: bots connect over WebSocket and fly live rounds of up to 4")
+    serve_cmd.add_argument("--map", default="cavern", help="bundled map name or map file path")
+    serve_cmd.add_argument("--port", type=int, default=8000,
+                           help="port to serve on (default 8000)")
+    serve_cmd.add_argument(
+        "--rule", action="append", default=[], metavar="KEY=VALUE",
+        help="override one rule constant with an integer, e.g. round_ticks=300 (repeatable)",
+    )
+    serve_cmd.add_argument(
+        "--fill-seconds", type=float, default=10,
+        help="start a round with fewer than 4 bots once the first has waited this long "
+             "(default 10)")
+    serve_cmd.add_argument("--log", metavar="FILE",
+                           help="append each round_end as a JSON line; the leaderboard is "
+                                "rebuilt from it on restart")
+    serve_cmd.add_argument("--replays", metavar="DIR",
+                           help="write each round as a replay file in this directory")
+    serve_cmd.set_defaults(func=cmd_serve)
     return parser
 
 
@@ -301,6 +321,43 @@ def cmd_wifitest(args: argparse.Namespace) -> int:
                 print(f"wrote {args.report}")
             except OSError as exc:
                 print(f"spacetaxi wifitest: error: {exc}", file=sys.stderr)
+    return 0
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    from spacetaxi.server import ArenaServer
+    from spacetaxi.wifitest import lan_addresses
+
+    try:
+        if args.fill_seconds < 0:
+            raise RuleError("--fill-seconds must not be negative")
+        rules = parse_rules(args.rule)
+        if rules.tick_ms < 1 or rules.deadline_ms < 1 or rules.round_ticks < 1:
+            raise RuleError("tick_ms, deadline_ms and round_ticks must be positive")
+        game_map = load_map(args.map)
+        arena = ArenaServer(game_map, rules, args.fill_seconds, log=args.log,
+                            replays=args.replays, say=lambda text: print(text, flush=True))
+    except (MapError, RuleError, OSError, ValueError, KeyError) as exc:
+        print(f"spacetaxi serve: error: {exc}", file=sys.stderr)
+        return 2
+
+    async def serve() -> None:
+        server = await arena.start(None, args.port)
+        print(f"arena on {args.map}: tick_ms={rules.tick_ms} deadline_ms={rules.deadline_ms} "
+              f"round_ticks={rules.round_ticks}, fill {args.fill_seconds:g} s")
+        for host in lan_addresses() or ["localhost"]:
+            print(f"  leaderboard http://{host}:{args.port}/   bots ws://{host}:{args.port}/bot")
+        print("Ctrl-C stops", flush=True)
+        async with server:
+            await server.serve_forever()
+
+    try:
+        asyncio.run(serve())
+    except KeyboardInterrupt:
+        print()
+    except OSError as exc:
+        print(f"spacetaxi serve: error: cannot serve on port {args.port}: {exc}", file=sys.stderr)
+        return 2
     return 0
 
 
