@@ -58,6 +58,17 @@ the touch buttons on a phone, to feel what a bot is up against. The dials change
 live and list the `--rule` flags for what you set. Its physics is a port of the simulation;
 `tests/e2e/test_play.py` checks it ticks exactly like `World`.
 
+## Shortcuts (fish)
+
+```fish
+scripts/play.fish                              # serve the flight lab on cavern and open it
+scripts/play.fish -m canyon -r gravity=3       # another map, a rule override
+scripts/sim.fish                               # pilot vs greedy, 3 rounds on cavern, open the replay
+scripts/sim.fish -m canyon -b pilot,./mybot.py -n 10 -s 7 -p 8001   # serve the replay instead
+```
+
+`-h` lists every option. Replays and pages go to `out/` (git-ignored).
+
 ## Write a bot
 
 ```sh

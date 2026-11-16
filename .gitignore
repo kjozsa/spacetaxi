@@ -10,3 +10,6 @@ build/
 # tracked in this repo despite global ignores
 !CLAUDE.md
 !docs/
+
+# simulation replays and pages written by scripts/sim.fish
+out/
