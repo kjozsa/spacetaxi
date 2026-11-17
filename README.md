@@ -111,6 +111,16 @@ uv run spacetaxi serve --standings standings.json                      # keep th
 uv run spacetaxi serve --benchmark greedy=300 --benchmark pilot=450    # skip the benchmark simulation
 ```
 
+### Running the workshop
+
+Hand out the participant card: `http://HOST:8000/card` (from
+[docs/participant-card.md](docs/participant-card.md), with the server's real address filled in;
+`serve` prints the URL) has the server's URLs, the milestones, the points and a first prompt. Put
+it on the projector at the start and leave it open on phones. Participants give their agents the
+brief, `http://HOST:8000/brief` (raw Markdown at `/brief.md`, from [docs/brief.md](docs/brief.md)),
+not the card: the milestones are for the people, who slice the work one small prompt per
+milestone. During the race keep `/standings` on the projector.
+
 ## Shortcuts (fish)
 
 ```fish

@@ -22,5 +22,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/spacetaxi"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"docs/brief.md" = "spacetaxi/docs/brief.md"
+"docs/participant-card.md" = "spacetaxi/docs/participant-card.md"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -2,7 +2,8 @@
 
 This document is the source of truth for the game. The simulation, the runner, the viewers and
 the bots all implement what is written here; when code and this document disagree, the code is
-wrong.
+wrong. [`brief.md`](brief.md) is the short version of the game for participants to hand to
+their agents, and [`participant-card.md`](participant-card.md) the one-page card for the people.
 
 Bots fly taxis around a grid. Passengers appear on landing pads and want to go to another pad.
 A bot earns money by picking a passenger up and landing on their destination pad. Crashing

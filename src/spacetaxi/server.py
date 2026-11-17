@@ -36,7 +36,9 @@ for milestones (`milestones.Tracker`), and points go to whoever reaches each fir
 played on one clock, so a milestone reached on the same tick in two arenas is a tie: candidates
 wait in `pending` until every arena of their wave has played that tick. Every award is logged
 and sent to spectators as `milestone`. `/standings` is the projector page of the race and
-`/standings.json` its data. The house bots' benchmarks are simulated in a thread at start,
+`/standings.json` its data. `/card` is the participant card and `/brief` the agent brief
+(`docs/participant-card.md`, `docs/brief.md`, rendered, with `address` filled in for HOST:PORT;
+`/brief.md` is the raw Markdown). The house bots' benchmarks are simulated in a thread at start,
 unless `benchmarks` gives them.
 """
 
@@ -55,7 +57,7 @@ from .milestones import (BENCHMARK_BOTS, BENCHMARK_ROUNDS, MILESTONES, POINTS, S
 from .milestones import benchmarks as simulate_benchmarks
 from .runner import check_move, clean_debug
 from .sim import Rules, World
-from .viewer import build_fly_html, build_live_html, build_standings_html
+from .viewer import build_doc_html, build_fly_html, build_live_html, build_standings_html
 
 WEB_DIR = Path(__file__).parent / "web"
 
@@ -66,6 +68,20 @@ MAX_ARENAS = 3
 HELLO_TIMEOUT = 10  # seconds a new connection has to say hello
 OUTBOX_TICKS = 8  # a tick is dropped for a bot that has this many messages still unsent
 DEAL_TRIES = 200  # shuffles tried per deal; the one whose groups have met least wins
+
+
+# the Markdown documents the server serves: path -> (file in docs/, page title)
+DOC_PAGES = {"/card": ("participant-card.md", "Spacetaxi: participant card"),
+             "/brief": ("brief.md", "Spacetaxi: brief"),
+             "/brief.md": ("brief.md", "")}
+
+
+def doc_text(name: str) -> str:
+    """A file of `docs/`: packaged next to the code in a wheel, the repo's `docs/` otherwise."""
+    for docs in (Path(__file__).parent / "docs", Path(__file__).resolve().parents[2] / "docs"):
+        if (docs / name).is_file():
+            return (docs / name).read_text(encoding="utf-8")
+    raise FileNotFoundError(name)
 
 
 def group_sizes(waiting: int, max_arenas: int = MAX_ARENAS) -> list[int]:
@@ -324,6 +340,7 @@ class ArenaServer:
         self.benchmarks.update(benchmarks or {})
         self.pending: list[tuple] = []  # (wave, tick, milestone, name, key) not yet scored
         self.standings_page: bytes | None = None
+        self.address: str | None = None  # HOST:PORT for the card and brief; set by start()
         if self.log and self.log.exists():
             with open(self.log, encoding="utf-8") as f:
                 for line in f:
@@ -357,6 +374,12 @@ class ArenaServer:
                     "points": list(POINTS), "benchmarks": self.benchmarks,
                     "reached": {m: self.standings.reached(m) for m in MILESTONES}}
             return 200, "application/json", json.dumps(data).encode("utf-8")
+        if path in DOC_PAGES:
+            name, title = DOC_PAGES[path]
+            text = doc_text(name).replace("HOST:PORT", self.address or "HOST:PORT")
+            if path.endswith(".md"):
+                return 200, "text/markdown; charset=utf-8", text.encode("utf-8")
+            return 200, "text/html; charset=utf-8", build_doc_html(text, title).encode("utf-8")
         if path == "/watch":
             if self.watch_page is None:
                 self.watch_page = build_live_html(self.map, self.rules).encode("utf-8")
@@ -369,6 +392,8 @@ class ArenaServer:
 
     async def start(self, host: str | None = None, port: int = 8000) -> asyncio.Server:
         server = await ws.serve({"/bot": self.handle, "/spectate": self.spectate}, self.http, host, port)
+        if self.address is None:
+            self.address = f"{host or 'localhost'}:{server.sockets[0].getsockname()[1]}"
         self._spawn(self.scheduler())
         if any(v is None for v in self.benchmarks.values()):
             self._spawn(self.find_benchmarks())

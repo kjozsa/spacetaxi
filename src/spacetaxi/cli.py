@@ -368,13 +368,16 @@ def cmd_serve(args: argparse.Namespace) -> int:
         return 2
 
     async def serve() -> None:
+        hosts = lan_addresses() or ["localhost"]
+        arena.address = f"{hosts[0]}:{args.port}"  # the address the card and brief give out
         server = await arena.start(None, args.port)
         print(f"arena on {args.map}: tick_ms={rules.tick_ms} deadline_ms={rules.deadline_ms} "
               f"round_ticks={rules.round_ticks}, waves every {args.fill_seconds:g} s after the last")
-        for host in lan_addresses() or ["localhost"]:
+        for host in hosts:
             print(f"  leaderboard http://{host}:{args.port}/   bots ws://{host}:{args.port}/bot   "
                   f"fly by hand http://{host}:{args.port}/fly   "
-                  f"standings http://{host}:{args.port}/standings")
+                  f"standings http://{host}:{args.port}/standings   "
+                  f"card http://{host}:{args.port}/card")
         print("Ctrl-C stops", flush=True)
         async with server:
             await server.serve_forever()
