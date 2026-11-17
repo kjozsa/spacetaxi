@@ -50,7 +50,8 @@ from pathlib import Path
 
 from . import ws
 from .maps import Map
-from .milestones import BENCHMARK_BOTS, MILESTONES, POINTS, Standings, Tracker
+from .milestones import (BENCHMARK_BOTS, BENCHMARK_ROUNDS, MILESTONES, POINTS, Standings,
+                         Tracker)
 from .milestones import benchmarks as simulate_benchmarks
 from .runner import check_move, clean_debug
 from .sim import Rules, World
@@ -382,10 +383,11 @@ class ArenaServer:
     async def find_benchmarks(self) -> None:
         """Simulate the missing benchmarks in a thread, so the arena runs meanwhile."""
         missing = [bot for bot, money in self.benchmarks.items() if money is None]
-        self.say(f"benchmarks: simulating {', '.join(missing)} on the map ...")
+        self.say(f"benchmarks: simulating {', '.join(missing)} on the map for the best of "
+                 f"{BENCHMARK_ROUNDS} rounds ...")
         found = await asyncio.to_thread(simulate_benchmarks, self.map, self.rules, missing)
         self.benchmarks.update(found)
-        self.say_benchmarks("simulated")
+        self.say_benchmarks(f"simulated, best round of {BENCHMARK_ROUNDS}")
 
     def _spawn(self, coro) -> asyncio.Task:
         task = asyncio.create_task(coro)

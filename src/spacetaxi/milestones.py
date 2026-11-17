@@ -19,7 +19,7 @@ MILESTONES = ("hello", "liftoff", "touchdown", "fare", "paid", "clean", "hat_tri
               "beat_greedy", "beat_pilot")
 ROUND_END = ("clean", "hat_trick", "beat_greedy", "beat_pilot")  # decided at round_end
 POINTS = (25, 18, 15, 12, 10, 8, 6, 4, 2, 1)  # for the 1st to 10th name; later ones score 0
-LIFTOFF_TICKS = 50  # ticks in a row flying, with no crash, for `liftoff`
+LIFTOFF_TICKS = 50  # ticks flying in one round, before the next crash, for `liftoff`
 HAT_TRICK = 3  # deliveries in one round for `hat_trick`
 MIN_TAXIS = 2  # taxis a round needs for the round-end milestones to count
 BENCHMARK_BOTS = ("greedy", "pilot")
@@ -38,7 +38,7 @@ class Tracker:
     def __init__(self, names: list[str], humans=()):
         self.taxis = len(names)
         self.names = [n for n in names if n not in set(humans)]
-        self.streak = {n: 0 for n in self.names}
+        self.streak = {n: 0 for n in self.names}  # flown ticks since round start or last crash
 
     def tick(self, states: dict[str, str], events: list[dict]) -> list[tuple[str, str]]:
         """`(milestone, name)` for every tick milestone reached in a tick, from each taxi's state
@@ -46,10 +46,10 @@ class Tracker:
         found = []
         crashed = {e.get("taxi") for e in events if e["type"] == "crash"}
         for name in self.names:
-            if states.get(name) == FLYING and name not in crashed:
-                self.streak[name] += 1
-            else:
+            if name in crashed:
                 self.streak[name] = 0
+            elif states.get(name) == FLYING:
+                self.streak[name] += 1
             if self.streak[name] == LIFTOFF_TICKS:
                 found.append(("liftoff", name))
         for event in events:
@@ -148,14 +148,26 @@ class Standings:
 
 def benchmarks(game_map: Map, rules: Rules, bots=BENCHMARK_BOTS,
                rounds: int = BENCHMARK_ROUNDS) -> dict[str, int]:
-    """Each house bot's average money per round (rounded, at least 1) over `rounds` seeded
-    rounds on `game_map` against 3 greedy copies. Moves are not timed, so a busy machine does
-    not make the house bots coast."""
+    """Each house bot's best money in one round (at least 1) over `rounds` seeded rounds on
+    `game_map` against 3 greedy copies. Moves are not timed, so a busy machine does not make
+    the house bots coast."""
     from .runner import run
 
     rules = replace(rules, deadline_ms=10 ** 9)
     out = {}
     for bot in bots:
-        [stats, *_] = run(game_map, [bot, "greedy", "greedy", "greedy"], rounds, 0, rules)
-        out[bot] = max(1, round(stats["avg_money"]))
+        rounds_money = _RoundMoney()
+        run(game_map, [bot, "greedy", "greedy", "greedy"], rounds, 0, rules, rounds_money)
+        out[bot] = max([1, *rounds_money.money])
     return out
+
+
+class _RoundMoney:
+    """A replay stream for `run` that keeps the first player's money from each `round_end`."""
+
+    def __init__(self):
+        self.money: list[int] = []
+
+    def write(self, line: str) -> None:
+        if line.startswith('{"type":"round_end"'):
+            self.money.append(json.loads(line)["results"][0]["money"])
