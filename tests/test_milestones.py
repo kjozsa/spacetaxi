@@ -40,7 +40,7 @@ def test_event_milestones_from_a_tick():
 
 def test_liftoff_after_50_ticks_flying():
     t = Tracker(["anna", "bob"])
-    for k in range(1, LIFTOFF_TICKS):
+    for _ in range(LIFTOFF_TICKS - 1):
         assert t.tick(flying("anna", "bob"), []) == []
     assert t.tick(flying("anna", "bob"), []) == [("liftoff", "anna"), ("liftoff", "bob")]
     assert t.tick(flying("anna", "bob"), []) == []  # once per streak
@@ -342,7 +342,8 @@ def test_server_awards_hello_to_bots_not_humans_and_tells_spectators(tmp_path):
 
 def test_round_end_milestones_not_awarded_in_a_one_taxi_round():
     async def main_():
-        server = ArenaServer(load_map("cavern"), RULES, 0.1, seed=1, benchmarks={"greedy": -10**6, "pilot": -10**6})
+        server = ArenaServer(load_map("cavern"), RULES, 0.1, seed=1,
+                             benchmarks={"greedy": -10**6, "pilot": -10**6})
         srv, port = await start(server)
         solo = await join(port, "solo")
         await play(solo)

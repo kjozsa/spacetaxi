@@ -4,6 +4,7 @@ Install the browser once: `uv run playwright install chromium`. Without it these
 
 import asyncio
 import json
+import os
 import threading
 import urllib.request
 from pathlib import Path
@@ -186,7 +187,8 @@ def test_watch_leaderboard_waits_for_the_first_round(browser, lonely):
 
 def test_watch_pops_up_milestones_and_standings_render(browser, lonely, tmp_path):
     base, server = lonely
-    shots = Path(__file__).parent / "screenshots"
+    shots = Path(__file__).parent / "screenshots" if os.environ.get("SPACETAXI_SCREENSHOTS") \
+        else tmp_path
     page, errors = open_watch(browser, base)
     page.click("#splash")
     page.wait_for_function("window.spacetaxi.connected", timeout=10000)

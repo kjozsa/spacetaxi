@@ -29,7 +29,7 @@ EVENT_MILESTONES = {"landed": "touchdown", "pickup": "fare", "deliver": "paid"}
 
 def points(place: int) -> int:
     """The points for reaching a milestone in `place` (from 1)."""
-    return POINTS[place - 1] if 1 <= place <= len(POINTS) else 0
+    return POINTS[place - 1] if place <= len(POINTS) else 0
 
 
 class Tracker:
@@ -93,7 +93,7 @@ class Standings:
                 for name, got in data["awards"].items():
                     self.awards[name] = {m: {"place": int(a["place"]),
                                              "points": int(a["points"])}
-                                         for m, a in got.items() if m in MILESTONES}
+                                         for m, a in got.items()}
             except (AttributeError, KeyError, TypeError) as exc:
                 raise ValueError(f"{self.path}: not a standings file ({exc!r})") from None
 
@@ -143,12 +143,11 @@ class Standings:
             same = before and (before["points"], len(before["milestones"])) == (
                 row["points"], len(row["milestones"]))
             row["rank"] = before["rank"] if same else i + 1
-        return [{"rank": r["rank"], **{k: r[k] for k in ("name", "points", "milestones")}}
-                for r in rows]
+        return rows
 
 
 def benchmarks(game_map: Map, rules: Rules, bots=BENCHMARK_BOTS,
-               rounds: int = BENCHMARK_ROUNDS, seed: int = 0) -> dict[str, int]:
+               rounds: int = BENCHMARK_ROUNDS) -> dict[str, int]:
     """Each house bot's average money per round (rounded, at least 1) over `rounds` seeded
     rounds on `game_map` against 3 greedy copies. Moves are not timed, so a busy machine does
     not make the house bots coast."""
@@ -157,6 +156,6 @@ def benchmarks(game_map: Map, rules: Rules, bots=BENCHMARK_BOTS,
     rules = replace(rules, deadline_ms=10 ** 9)
     out = {}
     for bot in bots:
-        [stats, *_] = run(game_map, [bot, "greedy", "greedy", "greedy"], rounds, seed, rules)
+        [stats, *_] = run(game_map, [bot, "greedy", "greedy", "greedy"], rounds, 0, rules)
         out[bot] = max(1, round(stats["avg_money"]))
     return out
