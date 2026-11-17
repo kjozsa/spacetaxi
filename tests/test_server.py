@@ -335,6 +335,7 @@ def test_cli_serve_prints_lan_urls():
                 break
         text = "".join(lines)
         assert f"ws://" in text and f":{port}/bot" in text and f":{port}/" in text
+        assert f":{port}/card" in text
     finally:
         proc.terminate()
         proc.wait(5)

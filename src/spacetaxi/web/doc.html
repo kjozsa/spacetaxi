@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>/*TITLE*/</title>
+<style>
+@font-face {
+  font-family: "Press Start 2P";
+  src: url(data:font/ttf;base64,/*FONT*/) format("truetype");
+}
+/* A Markdown document (the participant card, the agent brief) in the neon style of /standings:
+   the pixel font for headings, a plain monospace for the text so it reads on a phone. Sizes
+   grow with the window, so the same page works on the projector. */
+:root {
+  --bg: #04030b; --panel: #0e0c1c; --line: #2a2546; --fg: #e9e6ff; --muted: #9a94c4;
+  --cyan: #2ef2ff; --pink: #ff3df0; --gold: #ffd23f; --green: #7dff5a; --violet: #7a5cff;
+  --pixel: "Press Start 2P", "Courier New", monospace;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  color-scheme: dark;
+}
+html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--fg); }
+body {
+  font: clamp(15px, 0.55rem + 0.75vw, 24px)/1.5 var(--mono);
+  padding: clamp(14px, 2.4vw, 48px); box-sizing: border-box; min-height: 100vh;
+  background: radial-gradient(ellipse at top, #120d2e 0%, var(--bg) 70%) fixed;
+}
+body::after {
+  content: ""; position: fixed; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0 2px, rgba(0,0,0,.22) 2px 3px);
+}
+main { max-width: 64em; margin: 0 auto; }
+h1, h2, h3 { font-family: var(--pixel); font-weight: normal; line-height: 1.4; }
+h1 { font-size: 1.5em; margin: 0 0 .8em; color: var(--cyan); letter-spacing: .05em;
+     text-shadow: 0 0 .3em var(--cyan), 0 0 .8em var(--violet); }
+h2 { font-size: .95em; margin: 1.4em 0 .6em; color: var(--pink); text-shadow: 0 0 .4em var(--pink); }
+h3 { font-size: .8em; margin: 1.2em 0 .5em; color: var(--gold); }
+p, ul, ol { margin: .5em 0; }
+ul, ol { padding-left: 1.6em; }
+li { margin: .2em 0; }
+li::marker { color: var(--violet); }
+strong { color: var(--gold); font-weight: bold; }
+code { color: var(--green); overflow-wrap: anywhere; }
+pre { margin: .6em 0; padding: .7em 1em; background: var(--panel); border: 2px solid var(--line);
+      border-left-color: var(--cyan); white-space: pre-wrap; overflow-wrap: anywhere; }
+pre code { color: var(--fg); }
+a { color: var(--cyan); }
+nav { font-size: .8em; color: var(--muted); margin-top: 2em; }
+</style>
+</head>
+<body>
+<main>
+/*BODY*/
+<nav><a href="/card">card</a> · <a href="/brief">brief</a> · <a href="/brief.md">brief.md</a> · <a href="/standings">standings</a> · <a href="/watch">watch</a></nav>
+</main>
+</body>
+</html>

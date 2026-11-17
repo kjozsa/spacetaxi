@@ -106,6 +106,17 @@ def build_standings_html() -> str:
     return (WEB_DIR / "standings.html").read_text(encoding="utf-8").replace("/*FONT*/", font)
 
 
+def build_doc_html(text: str, title: str) -> str:
+    """A Markdown document (`spacetaxi serve`'s `/card` and `/brief`) as a page in the
+    viewer's neon style."""
+    import html
+
+    from spacetaxi.markdown import render
+    font = base64.b64encode((WEB_DIR / "PressStart2P-Regular.ttf").read_bytes()).decode("ascii")
+    return ((WEB_DIR / "doc.html").read_text(encoding="utf-8").replace("/*FONT*/", font)
+            .replace("/*TITLE*/", html.escape(title)).replace("/*BODY*/", render(text)))
+
+
 def page(rounds: list[dict], mode: str) -> str:
     """The viewer page with `rounds` embedded; `mode` is `replay`, `live` or `fly`."""
     data = json.dumps(rounds, separators=(",", ":"))

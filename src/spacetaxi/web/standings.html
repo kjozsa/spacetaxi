@@ -51,6 +51,8 @@ tr:nth-child(1) td.name, tr:nth-child(1) td.pts { color: var(--gold); text-shado
 @keyframes glow { to { box-shadow: 0 0 1.6vw var(--c), 0 0 3vw var(--c); } }
 @media (prefers-reduced-motion: reduce) { .badge.on.p1 { animation: none; } }
 td.empty { color: var(--muted); font-size: 1.2vw; padding: 4vw 0; border: none; }
+#foot { margin-top: 1.6vw; font-size: 1vw; color: var(--muted); }
+#foot a { color: var(--cyan); }
 .new td { animation: flash 2.4s ease-out; }
 @keyframes flash { from { background: rgba(255,210,63,.35); } to { background: transparent; } }
 </style>
@@ -64,6 +66,7 @@ td.empty { color: var(--muted); font-size: 1.2vw; padding: 4vw 0; border: none; 
   <thead><tr id="head"></tr></thead>
   <tbody id="rows"></tbody>
 </table>
+<p id="foot">THE MILESTONES AND HOW TO JOIN: <a href="/card">/card</a></p>
 <script>
 "use strict";
 // Labels and colours of the milestones, in the order of docs/rules.md (the server sends the list).
