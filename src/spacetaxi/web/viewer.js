@@ -43,7 +43,7 @@ const splash = document.getElementById("splash");
 // destination of a carried passenger, the human players of the round and the players whose
 // taxi has the HUMAN tag or (fly mode) the YOU marker this frame.
 const fx = { flames: 0, explosions: 0, dust: 0, pickups: 0, cash: 0, shakes: 0 };
-const sfx = { hum: 0, boom: 0, chime: 0, cash: 0, jingle: 0 };
+const sfx = { hum: 0, boom: 0, chime: 0, cash: 0, jingle: 0, fanfare: 0 };
 window.spacetaxi = { round: 0, tick: 0, fps: 0, scanlines: true, podium: null, fx, sfx,
                      muted: false, started: false, audio: false, thrusting: 0,
                      overlay: false, bubbles: [], taxis: [], tags: [], tagBoxes: [], pulsing: [],
@@ -324,6 +324,10 @@ const SOUNDS = {
     noise(t, 0.06, 0.5, 6000, 2000);
     tone("triangle", 2093, t + 0.06, 0.5, 0.25); tone("square", 1568, t + 0.06, 0.12, 0.08);
     tone("triangle", 2637, t + 0.1, 0.45, 0.18);
+  },
+  fanfare(t) {   // a milestone reached: a short rising call
+    [784, 988, 1175].forEach((f, j) => tone("square", f, t + j * 0.08, 0.1, 0.12));
+    tone("square", 1568, t + 0.24, 0.35, 0.14, 1760);
   },
   jingle(t, end) {   // a rising arpeggio at the start of a round, a falling one at its end
     if (!end) {
@@ -866,7 +870,25 @@ function liveAdvance(dt, now) {
   playing = !over;
 }
 
+// Milestone pop-ups: one line per award ("ANNA · PAID · P3 · +15"), stacked, each for a few
+// seconds, with a fanfare. The debug hook keeps the texts shown in `milestones`.
+const MILESTONE_MS = 4500, MAX_TOASTS = 4;
+const toastsEl = document.getElementById("toasts");
+function showMilestone(msg) {
+  const text = [msg.name.toUpperCase(), msg.milestone.toUpperCase().replace(/_/g, " "),
+                `P${msg.place}`, `+${msg.points}`].join(" \u00b7 ");
+  window.spacetaxi.milestones.push(text);
+  const el = document.createElement("div");
+  el.className = "toast" + (msg.place === 1 ? " first" : "");
+  el.textContent = text;
+  toastsEl.appendChild(el);
+  while (toastsEl.children.length > MAX_TOASTS) toastsEl.firstElementChild.remove();
+  setTimeout(() => el.remove(), MILESTONE_MS);
+  sound("fanfare");
+}
+
 function onLive(msg) {
+  if (msg.type === "milestone") { showMilestone(msg); return; }
   if (msg.type === "spectate") {
     live.arenas = msg.arenas; live.slots = {}; live.running.clear();
     liveOptions();
@@ -951,7 +973,8 @@ function startLive() {
   document.getElementById("lb").hidden = false;
   splash.querySelector(".hint").textContent = "C SCREEN \u00b7 M OR SOUND BUTTON MUTE \u00b7 D DEBUG";
   Object.assign(window.spacetaxi, { live: true, arena: 0, follow: true, running: [], idle: true,
-                                    waiting: 0, leaderboard: [], connected: false });
+                                    waiting: 0, leaderboard: [], connected: false,
+                                    milestones: [] });
   showSlot(0);
   liveOptions();
   connectLive();

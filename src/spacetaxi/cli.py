@@ -121,6 +121,13 @@ def build_parser() -> argparse.ArgumentParser:
                                 "rebuilt from it on restart")
     serve_cmd.add_argument("--replays", metavar="DIR",
                            help="write each round as a replay file in this directory")
+    serve_cmd.add_argument("--standings", metavar="FILE",
+                           help="keep the milestone race's standings in this JSON file: saved "
+                                "after every award, loaded on restart")
+    serve_cmd.add_argument(
+        "--benchmark", action="append", default=[], metavar="BOT=MONEY",
+        help="the money beat_greedy / beat_pilot must beat, e.g. greedy=300 (repeatable; "
+             "default: simulated on the map at start)")
     serve_cmd.set_defaults(func=cmd_serve)
 
     connect_cmd = commands.add_parser(
@@ -350,9 +357,12 @@ def cmd_serve(args: argparse.Namespace) -> int:
         rules = parse_rules(args.rule)
         if rules.tick_ms < 1 or rules.deadline_ms < 1 or rules.round_ticks < 1:
             raise RuleError("tick_ms, deadline_ms and round_ticks must be positive")
+        benchmarks = parse_benchmarks(args.benchmark)
         game_map = load_map(args.map)
         arena = ArenaServer(game_map, rules, args.fill_seconds, log=args.log,
-                            replays=args.replays, seed=args.seed, say=lambda text: print(text, flush=True))
+                            replays=args.replays, seed=args.seed,
+                            say=lambda text: print(text, flush=True),
+                            standings=args.standings, benchmarks=benchmarks)
     except (MapError, RuleError, OSError, ValueError, KeyError) as exc:
         print(f"spacetaxi serve: error: {exc}", file=sys.stderr)
         return 2
@@ -363,7 +373,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
               f"round_ticks={rules.round_ticks}, waves every {args.fill_seconds:g} s after the last")
         for host in lan_addresses() or ["localhost"]:
             print(f"  leaderboard http://{host}:{args.port}/   bots ws://{host}:{args.port}/bot   "
-                  f"fly by hand http://{host}:{args.port}/fly")
+                  f"fly by hand http://{host}:{args.port}/fly   "
+                  f"standings http://{host}:{args.port}/standings")
         print("Ctrl-C stops", flush=True)
         async with server:
             await server.serve_forever()
@@ -376,6 +387,23 @@ def cmd_serve(args: argparse.Namespace) -> int:
         print(f"spacetaxi serve: error: cannot serve on port {args.port}: {exc}", file=sys.stderr)
         return 2
     return 0
+
+
+def parse_benchmarks(items: list[str]) -> dict[str, int]:
+    """`--benchmark BOT=MONEY` values as a dict; BOT is one of the house benchmarks."""
+    from spacetaxi.milestones import BENCHMARK_BOTS
+
+    out = {}
+    for item in items:
+        bot, sep, money = item.partition("=")
+        if not sep or bot not in BENCHMARK_BOTS:
+            raise RuleError(f"--benchmark {item!r}: expected BOT=MONEY, BOT one of "
+                            + ", ".join(BENCHMARK_BOTS))
+        try:
+            out[bot] = int(money)
+        except ValueError:
+            raise RuleError(f"--benchmark {item!r}: MONEY must be an integer") from None
+    return out
 
 
 def cmd_connect(args: argparse.Namespace) -> int:

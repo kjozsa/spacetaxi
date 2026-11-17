@@ -100,6 +100,17 @@ soft. After each round the page shows the results and joins the queue again; LEA
 Humans get a `human` tag on the leaderboard (`"human": true` in `/leaderboard.json`) and in
 `/watch`.
 
+The arena is a **milestone race** (rules in [docs/rules.md](docs/rules.md#milestones)): from
+the first `hello` on, the first bots to say hello, fly 50 ticks, land, pick up, deliver, fly a
+clean round, deliver 3 in a round, or beat the greedy and pilot house bots' money score F1
+points (25, 18, 15, ...). `/standings` is the race on the projector (`/standings.json` its
+data), and `/watch` pops up every award. Humans do not score.
+
+```sh
+uv run spacetaxi serve --standings standings.json                      # keep the race across restarts
+uv run spacetaxi serve --benchmark greedy=300 --benchmark pilot=450    # skip the benchmark simulation
+```
+
 ## Shortcuts (fish)
 
 ```fish

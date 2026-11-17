@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spacetaxi standings</title>
+<style>
+@font-face {
+  font-family: "Press Start 2P";
+  src: url(data:font/ttf;base64,/*FONT*/) format("truetype");
+}
+/* The projector page of the milestone race: big type, the neon colours of the viewer. Sizes
+   follow the window (vw), so the page reads the same from the back of any room. */
+:root {
+  --bg: #04030b; --panel: #0e0c1c; --line: #2a2546; --fg: #e9e6ff; --muted: #9a94c4;
+  --cyan: #2ef2ff; --pink: #ff3df0; --gold: #ffd23f; --green: #7dff5a; --violet: #7a5cff;
+  --font: "Press Start 2P", "Courier New", monospace;
+  color-scheme: dark;
+}
+html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--fg); font-family: var(--font); }
+body {
+  padding: 2.2vw 2.6vw; box-sizing: border-box; min-height: 100vh;
+  background: radial-gradient(ellipse at top, #120d2e 0%, var(--bg) 70%) fixed;
+}
+/* CRT scanlines, as on /watch */
+body::after {
+  content: ""; position: fixed; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0 2px, rgba(0,0,0,.22) 2px 3px);
+}
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 2vw; margin-bottom: 1.6vw; }
+h1 { margin: 0; font-size: 3.4vw; font-weight: normal; color: var(--cyan); letter-spacing: .3vw;
+     text-shadow: 0 0 .8vw var(--cyan), 0 0 2vw var(--violet); }
+#info { font-size: 1vw; color: var(--muted); text-align: right; line-height: 1.8; }
+#info b { color: var(--gold); font-weight: normal; }
+table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+th { font-size: .78vw; font-weight: normal; color: var(--muted); padding: 0 0 .9vw; line-height: 1.7; vertical-align: bottom; }
+th .next { display: block; color: var(--green); }
+th.name, td.name { text-align: left; }
+th.rank { width: 5vw; } th.name { width: 22vw; } th.pts { width: 9vw; text-align: right; }
+td { padding: .55vw .3vw; border-bottom: .12vw solid var(--line); font-size: 2vw; text-align: center; white-space: nowrap; }
+td.rank { color: var(--muted); text-align: left; }
+td.name { color: var(--cyan); overflow: hidden; text-overflow: ellipsis; }
+td.pts { color: #fff; text-align: right; font-variant-numeric: tabular-nums; }
+tr:nth-child(1) td.name, tr:nth-child(1) td.pts { color: var(--gold); text-shadow: 0 0 .6vw var(--gold); }
+.badge {
+  display: inline-block; width: 4.6vw; padding: .55vw 0; font-size: .9vw; line-height: 1;
+  border: .14vw solid var(--line); color: var(--line);
+}
+.badge.on { color: #04030b; background: var(--c); border-color: var(--c); box-shadow: 0 0 .8vw var(--c); }
+.badge.on.p1 { animation: glow 1.6s ease-in-out infinite alternate; }
+@keyframes glow { to { box-shadow: 0 0 1.6vw var(--c), 0 0 3vw var(--c); } }
+@media (prefers-reduced-motion: reduce) { .badge.on.p1 { animation: none; } }
+td.empty { color: var(--muted); font-size: 1.2vw; padding: 4vw 0; border: none; }
+.new td { animation: flash 2.4s ease-out; }
+@keyframes flash { from { background: rgba(255,210,63,.35); } to { background: transparent; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>MILESTONE RACE</h1>
+  <div id="info">CONNECTING ...</div>
+</header>
+<table>
+  <thead><tr id="head"></tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+<script>
+"use strict";
+// Labels and colours of the milestones, in the order of docs/rules.md (the server sends the list).
+const LABELS = { hello: "HELLO", liftoff: "LIFTOFF", touchdown: "TOUCH DOWN", fare: "FARE",
+                 paid: "PAID", clean: "CLEAN", hat_trick: "HAT TRICK", beat_greedy: "BEAT GREEDY",
+                 beat_pilot: "BEAT PILOT" };
+const COLORS = ["#2ef2ff", "#7dff5a", "#ffd23f", "#ff8a3d", "#7dff5a", "#a98bff", "#ff3df0", "#ff5a6e", "#ffd23f"];
+const label = m => LABELS[m] || m.toUpperCase().replace(/_/g, " ");
+const seen = new Map();   // name -> points last shown, to flash the rows that scored
+window.spacetaxi = { standings: null };
+
+function cell(tag, cls, text) {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  if (text !== undefined) el.textContent = text;
+  return el;
+}
+
+function render(data) {
+  window.spacetaxi.standings = data;
+  const b = data.benchmarks;
+  const bench = Object.entries(b).map(([k, v]) => `${k.toUpperCase()} <b>${v === null ? "..." : "$" + v}</b>`);
+  document.getElementById("info").innerHTML =
+    `F1 POINTS ${data.points.join(" ")}<br>BENCHMARKS ${bench.join(" · ")}`;
+  const head = document.getElementById("head");
+  head.replaceChildren(cell("th", "rank", "#"), cell("th", "name", "NAME"),
+    ...data.milestones.map(m => {
+      const th = cell("th", "", label(m));
+      const n = data.reached[m] || 0;
+      th.appendChild(cell("span", "next", n < data.points.length ? `+${data.points[n]}` : "+0"));
+      return th;
+    }), cell("th", "pts", "PTS"));
+  const body = document.getElementById("rows");
+  if (!data.standings.length) {
+    const tr = cell("tr");
+    const td = cell("td", "empty", "WAITING FOR THE FIRST HELLO");
+    td.colSpan = data.milestones.length + 3;
+    tr.appendChild(td);
+    body.replaceChildren(tr);
+    return;
+  }
+  body.replaceChildren(...data.standings.map(r => {
+    const tr = cell("tr");
+    if (seen.has(r.name) && seen.get(r.name) !== r.points) tr.className = "new";
+    seen.set(r.name, r.points);
+    tr.append(cell("td", "rank", `${r.rank}.`), cell("td", "name", r.name.toUpperCase()));
+    data.milestones.forEach((m, i) => {
+      const got = r.milestones[m];
+      const badge = cell("span", "badge" + (got ? ` on p${got.place}` : ""), got ? `P${got.place}` : "·");
+      badge.style.setProperty("--c", COLORS[i % COLORS.length]);
+      badge.title = got ? `${label(m)}: place ${got.place}, ${got.points} points` : label(m);
+      const td = cell("td");
+      td.appendChild(badge);
+      tr.appendChild(td);
+    });
+    tr.appendChild(cell("td", "pts", String(r.points)));
+    return tr;
+  }));
+}
+
+async function poll() {
+  try {
+    const res = await fetch("/standings.json", { cache: "no-store" });
+    render(await res.json());
+  } catch (err) {
+    document.getElementById("info").textContent = "SERVER UNREACHABLE, RETRYING ...";
+  }
+  setTimeout(poll, 2000);
+}
+poll();
+</script>
+</body>
+</html>
