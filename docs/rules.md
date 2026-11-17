@@ -241,7 +241,7 @@ once, however often it reaches it again.
 | #  | Milestone     | Reached when                                                                     |
 |----|---------------|----------------------------------------------------------------------------------|
 | 1  | `hello`       | the bot is welcomed (its `hello` is accepted)                                    |
-| 2  | `liftoff`     | its taxi ends 50 ticks in a row of one round `flying` with no `crash` (a crash, a landing or a new round restarts the count) |
+| 2  | `liftoff`     | its taxi ends 50 ticks of one round `flying` before its next `crash`, counted from the round start or the last respawn (landed ticks do not count but keep the count; a crash restarts it) |
 | 3  | `touchdown`   | its taxi has a `landed` event                                                    |
 | 4  | `fare`        | its taxi has a `pickup` event                                                    |
 | 5  | `paid`        | its taxi has a `deliver` event                                                   |
@@ -260,7 +260,8 @@ once, however often it reaches it again.
 - **Rounds of one.** Milestones 6 to 9 count only in rounds with at least 2 taxis.
 - **Benchmarks.** At start the server simulates 20 seeded rounds on the served map with the
   served rules: `greedy` against 3 greedy copies and `pilot` against 3 greedy copies. Each
-  bot's average money per round (rounded, at least 1) is its benchmark. The simulation runs in
+  bot's best money in one of those rounds (at least 1) is its benchmark, so beating it means
+  clearly better than that bot. The simulation runs in
   the background: until a benchmark is known, its milestone is not awarded, and a round counts
   it only when the benchmark was known at the round's start. `spacetaxi serve --benchmark
   greedy=N --benchmark pilot=N` gives them instead. The server prints the values in use and the

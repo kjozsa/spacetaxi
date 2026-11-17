@@ -127,7 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve_cmd.add_argument(
         "--benchmark", action="append", default=[], metavar="BOT=MONEY",
         help="the money beat_greedy / beat_pilot must beat, e.g. greedy=300 (repeatable; "
-             "default: simulated on the map at start)")
+             "default: the bot's best round money in 20 rounds simulated on the map at start)")
     serve_cmd.set_defaults(func=cmd_serve)
 
     connect_cmd = commands.add_parser(

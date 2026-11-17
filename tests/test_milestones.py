@@ -2,7 +2,9 @@
 standings on disk, and the server's awards to spectators."""
 
 import asyncio
+import io
 import json
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -12,6 +14,7 @@ from spacetaxi.cli import main
 from spacetaxi.maps import load_map
 from spacetaxi.milestones import (LIFTOFF_TICKS, MILESTONES, POINTS, Standings, Tracker,
                                   benchmarks)
+from spacetaxi.runner import run
 from spacetaxi.server import Arena, ArenaServer
 from spacetaxi.sim import Rules
 
@@ -66,12 +69,28 @@ def test_liftoff_streak_reset_by_a_crash_even_when_flying_again():
     assert t.tick(flying("anna"), []) == []
 
 
-def test_liftoff_streak_reset_by_a_landing():
+def test_liftoff_counts_flown_ticks_across_a_landing():
     t = Tracker(["anna"])
-    for _ in range(LIFTOFF_TICKS - 1):
+    for _ in range(30):
+        assert t.tick(flying("anna"), []) == []
+    assert t.tick(flying("anna", state="landed"),
+                  [{"type": "landed", "taxi": "anna", "pad": "A"}]) == [("touchdown", "anna")]
+    for _ in range(10):  # landed ticks neither count nor reset
+        assert t.tick(flying("anna", state="landed"), []) == []
+    for _ in range(LIFTOFF_TICKS - 30 - 1):
+        assert t.tick(flying("anna"), []) == []
+    assert t.tick(flying("anna"), []) == [("liftoff", "anna")]
+
+
+def test_liftoff_not_reached_when_a_crash_splits_the_flight():
+    t = Tracker(["anna"])
+    for _ in range(40):
         t.tick(flying("anna"), [])
-    t.tick(flying("anna", state="landed"), [{"type": "landed", "taxi": "anna", "pad": "A"}])
-    assert t.tick(flying("anna"), []) == []
+    t.tick(flying("anna", state="crashed"), [{"type": "crash", "taxi": "anna", "cause": "wall"}])
+    for _ in range(5):  # waiting to respawn
+        t.tick(flying("anna", state="crashed"), [])
+    for _ in range(40):
+        assert t.tick(flying("anna"), []) == []
 
 
 def test_humans_are_not_tracked():
@@ -180,6 +199,17 @@ def test_automatic_benchmark_is_a_positive_integer():
     assert all(type(v) is int and v > 0 for v in got.values())
 
 
+def test_automatic_benchmark_is_the_best_round():
+    game_map, rules = load_map("cavern"), Rules(round_ticks=300)
+    got = benchmarks(game_map, rules, bots=("greedy",), rounds=3)
+    replay = io.StringIO()
+    run(game_map, ["greedy"] * 4, 3, 0, replace(rules, deadline_ms=10 ** 9), replay)
+    money = [json.loads(line)["results"][0]["money"] for line in replay.getvalue().splitlines()
+             if json.loads(line)["type"] == "round_end"]
+    assert len(set(money)) > 1  # the rounds differ, so best and average differ
+    assert got == {"greedy": max([1, *money])}
+
+
 def test_benchmark_override_is_used_and_shown():
     lines = []
 
@@ -217,7 +247,7 @@ def test_automatic_benchmarks_are_simulated_in_the_background():
     server = asyncio.run(main_())
     assert type(server.benchmarks["greedy"]) is int and server.benchmarks["greedy"] > 0
     assert server.benchmarks["pilot"] == 450
-    assert any(line.startswith("benchmarks (simulated): greedy=") for line in lines)
+    assert any(line.startswith("benchmarks (simulated, best round of 20): greedy=") for line in lines)
 
 
 def test_beat_milestones_wait_for_the_round_after_the_benchmark():

@@ -85,7 +85,7 @@ function cell(tag, cls, text) {
 function render(data) {
   window.spacetaxi.standings = data;
   const b = data.benchmarks;
-  const bench = Object.entries(b).map(([k, v]) => `${k.toUpperCase()} <b>${v === null ? "..." : "$" + v}</b>`);
+  const bench = Object.entries(b).map(([k, v]) => `${k.toUpperCase()}'S BEST ROUND <b>${v === null ? "..." : "$" + v}</b>`);
   document.getElementById("info").innerHTML =
     `F1 POINTS ${data.points.join(" ")}<br>BENCHMARKS ${bench.join(" · ")}`;
   const head = document.getElementById("head");
