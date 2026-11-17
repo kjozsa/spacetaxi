@@ -970,7 +970,7 @@ function startLive() {
 // sent), `lastMove` and `keys` (held).
 const NAME_RE = /^[A-Za-z0-9_-]{1,12}$/;
 const FLY_KEYS = ["ArrowUp", "ArrowLeft", "ArrowRight"];
-const fly = { sock: null, id: null, index: -1, round: null, error: "" };
+const fly = { sock: null, id: null, index: -1, round: null, error: "", countdown: 0 };
 const held = new Set();
 const joinForm = document.getElementById("join"), nameInput = document.getElementById("name");
 const joinMsg = document.getElementById("joinMsg"), statusEl = document.getElementById("status");
@@ -993,6 +993,7 @@ function releaseAll() {
 }
 
 function showStatus(text) {
+  clearInterval(fly.countdown);
   statusEl.textContent = text;
   statusEl.hidden = false;
 }
@@ -1004,7 +1005,7 @@ function showJoin(message) {
   live.running.clear();
   joinMsg.textContent = message || "";
   joinForm.hidden = false;
-  statusEl.hidden = true; leaveBtn.hidden = true; touchEl.hidden = true;
+  statusEl.hidden = true; clearInterval(fly.countdown); leaveBtn.hidden = true; touchEl.hidden = true;
   nameInput.focus();
 }
 
@@ -1052,7 +1053,12 @@ function onFly(msg, sock) {
   } else if (msg.type === "queued") {
     st.queue = { position: msg.position, waiting: msg.waiting, starts_in: msg.starts_in };
     if (st.fly !== "over") st.fly = "queued";
-    showStatus(`IN THE QUEUE: ${msg.position} OF ${msg.waiting} · STARTS IN ${msg.starts_in} S`);
+    // `starts_in` is a snapshot: count it down here until the next `queued` or `round_start`
+    const at = performance.now() + msg.starts_in * 1000;
+    const left = () => Math.max(0, Math.ceil((at - performance.now()) / 1000));
+    const text = () => `IN THE QUEUE: ${msg.position} OF ${msg.waiting} · STARTS IN ${left()} S`;
+    showStatus(text());
+    fly.countdown = setInterval(() => { statusEl.textContent = text(); }, 250);
   } else if (msg.type === "round_start") {
     const rules = { ...ROUNDS[0].rules, ...(msg.rules || {}) };
     fly.round = { round: msg.round, arena: 1, map: msg.map, pads: msg.pads, players: msg.players,
@@ -1061,7 +1067,7 @@ function onFly(msg, sock) {
     live.slots[1] = fly.round;
     live.running.add(1);
     Object.assign(st, { fly: "playing", you: fly.index, me: null, results: null, queue: null });
-    resultsEl.hidden = true; statusEl.hidden = true;
+    resultsEl.hidden = true; statusEl.hidden = true; clearInterval(fly.countdown);
     showSlot(1);
   } else if (msg.type === "tick") {
     const d = fly.round;
