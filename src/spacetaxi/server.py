@@ -29,6 +29,15 @@ gets each running arena's `round_start` and latest `tick` first. Spectators send
 appended to that file as one JSON line (with each taxi's `ticks` and `late` count) and the
 leaderboard is rebuilt from it on start. With `replays`, each round is written to that directory
 as a replay that `spacetaxi view` opens.
+
+The milestone race (docs/rules.md, Milestones): every `hello`, tick and `round_end` is checked
+for milestones (`milestones.Tracker`), and points go to whoever reaches each first
+(`milestones.Standings`, saved to `standings` after every change). Ticks of a wave's arenas are
+played on one clock, so a milestone reached on the same tick in two arenas is a tie: candidates
+wait in `pending` until every arena of their wave has played that tick. Every award is logged
+and sent to spectators as `milestone`. `/standings` is the projector page of the race and
+`/standings.json` its data. The house bots' benchmarks are simulated in a thread at start,
+unless `benchmarks` gives them.
 """
 
 import asyncio
@@ -41,9 +50,11 @@ from pathlib import Path
 
 from . import ws
 from .maps import Map
+from .milestones import BENCHMARK_BOTS, MILESTONES, POINTS, Standings, Tracker
+from .milestones import benchmarks as simulate_benchmarks
 from .runner import check_move, clean_debug
 from .sim import Rules, World
-from .viewer import build_fly_html, build_live_html
+from .viewer import build_fly_html, build_live_html, build_standings_html
 
 WEB_DIR = Path(__file__).parent / "web"
 
@@ -163,6 +174,9 @@ class Arena:
         self.late = {name: 0 for name in self.names}
         self.replay = None
         self.shown: dict[str, str] = {}  # the latest message of each type sent to spectators
+        self.tracker = Tracker(self.names, self.humans)
+        self.benchmarks = dict(server.benchmarks)  # as at round start: known ones count
+        self.stepped = 0  # the last tick played (round_ticks + 1 once the round has ended)
         for bot in bots:
             bot.arena = self
 
@@ -205,7 +219,12 @@ class Arena:
                 record = {"ax": 0, "ay": 0, "coast": True}
             records[name] = record
         self.emit({**state, "moves": records})
-        self.world.step({n: {"ax": r["ax"], "ay": r["ay"]} for n, r in records.items()})
+        events = self.world.step({n: {"ax": r["ax"], "ay": r["ay"]} for n, r in records.items()})
+        found = self.tracker.tick({t.id: t.state for t in self.world.taxis}, events)
+        for milestone, name in found:
+            self.server.pending.append((self.wave, state["tick"], milestone, name, 0))
+        self.stepped = state["tick"]
+        self.server.flush(self.wave)
 
     async def run(self, t0: int | None = None) -> dict:
         """Play the round in real time, tick `k` at `t0 + k * tick_ms` (perf_counter_ns; the
@@ -250,6 +269,11 @@ class Arena:
             round_end = {"type": "round_end", "round": self.number, "results": results}
             self.emit(round_end)
             self.broadcast(round_end)
+            for milestone, name, money in self.tracker.round_end(results, self.benchmarks):
+                self.server.pending.append(
+                    (self.wave, rules.round_ticks + 1, milestone, name, money))
+            self.stepped = rules.round_ticks + 1
+            self.server.flush(self.wave)
         finally:
             if self.replay is not None:
                 self.replay.close()
@@ -269,7 +293,8 @@ class ArenaServer:
 
     def __init__(self, game_map: Map, rules: Rules | None = None, fill_seconds: float = 10,
                  log: str | Path | None = None, replays: str | Path | None = None,
-                 seed: int | None = None, max_arenas: int = MAX_ARENAS, say=None):
+                 seed: int | None = None, max_arenas: int = MAX_ARENAS, say=None,
+                 standings: str | Path | None = None, benchmarks: dict | None = None):
         self.map = game_map
         self.rules = rules or Rules()
         self.fill_ns = int(fill_seconds * 1e9)
@@ -292,6 +317,12 @@ class ArenaServer:
         self.next_wave_ns: int | None = None  # when the next wave starts; None while a wave runs
         self.met: dict[frozenset, int] = {}  # rounds each pair of names has shared
         self.last_groups: set[frozenset] = set()  # the previous wave's groups
+        self.standings = Standings(standings)
+        # the money beat_greedy / beat_pilot must beat; None until simulated
+        self.benchmarks: dict[str, int | None] = {bot: None for bot in BENCHMARK_BOTS}
+        self.benchmarks.update(benchmarks or {})
+        self.pending: list[tuple] = []  # (wave, tick, milestone, name, key) not yet scored
+        self.standings_page: bytes | None = None
         if self.log and self.log.exists():
             with open(self.log, encoding="utf-8") as f:
                 for line in f:
@@ -316,6 +347,15 @@ class ArenaServer:
                                        "tick": a.playing} for a in self.arenas],
                                      key=lambda a: a["round"])}
             return 200, "application/json", json.dumps(data).encode("utf-8")
+        if path == "/standings":
+            if self.standings_page is None:
+                self.standings_page = build_standings_html().encode("utf-8")
+            return 200, "text/html; charset=utf-8", self.standings_page
+        if path == "/standings.json":
+            data = {"standings": self.standings.table(), "milestones": list(MILESTONES),
+                    "points": list(POINTS), "benchmarks": self.benchmarks,
+                    "reached": {m: self.standings.reached(m) for m in MILESTONES}}
+            return 200, "application/json", json.dumps(data).encode("utf-8")
         if path == "/watch":
             if self.watch_page is None:
                 self.watch_page = build_live_html(self.map, self.rules).encode("utf-8")
@@ -329,13 +369,58 @@ class ArenaServer:
     async def start(self, host: str | None = None, port: int = 8000) -> asyncio.Server:
         server = await ws.serve({"/bot": self.handle, "/spectate": self.spectate}, self.http, host, port)
         self._spawn(self.scheduler())
+        if any(v is None for v in self.benchmarks.values()):
+            self._spawn(self.find_benchmarks())
+        else:
+            self.say_benchmarks("given")
         return server
+
+    def say_benchmarks(self, how: str) -> None:
+        self.say("benchmarks (" + how + "): " + " ".join(
+            f"{bot}={money}" for bot, money in self.benchmarks.items()))
+
+    async def find_benchmarks(self) -> None:
+        """Simulate the missing benchmarks in a thread, so the arena runs meanwhile."""
+        missing = [bot for bot, money in self.benchmarks.items() if money is None]
+        self.say(f"benchmarks: simulating {', '.join(missing)} on the map ...")
+        found = await asyncio.to_thread(simulate_benchmarks, self.map, self.rules, missing)
+        self.benchmarks.update(found)
+        self.say_benchmarks("simulated")
 
     def _spawn(self, coro) -> asyncio.Task:
         task = asyncio.create_task(coro)
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
         return task
+
+    # --- the milestone race
+
+    def award(self, milestone: str, entries: list[tuple[str, int]]) -> None:
+        """Score `entries` reaching `milestone` together (see `Standings.award`), log every
+        award, tell the spectators and save the standings."""
+        awards = self.standings.award(milestone, entries)
+        for a in awards:
+            self.say(f"* milestone {a['milestone']}: {a['name']} P{a['place']} +{a['points']}")
+            text = dumps({"type": "milestone", **a})
+            for spectator in self.spectators:
+                spectator.send(text)
+        if awards:
+            self.standings.save()
+
+    def flush(self, wave: int) -> None:
+        """Score the pending milestones of `wave` from every tick that all of its running
+        arenas have played, tick by tick: the names of one tick and milestone tie."""
+        running = [a.stepped for a in self.arenas if a.wave == wave]
+        upto = min(running) if running else None
+        ready = [p for p in self.pending if p[0] == wave and (upto is None or p[1] <= upto)]
+        if not ready:
+            return
+        self.pending = [p for p in self.pending if p not in ready]
+        moments = sorted({(p[1], MILESTONES.index(p[2])) for p in ready})
+        for tick, m in moments:
+            milestone = MILESTONES[m]
+            self.award(milestone, [(p[3], p[4]) for p in ready
+                                   if p[1] == tick and p[2] == milestone])
 
     # --- the queue and the waves
 
@@ -443,6 +528,7 @@ class ArenaServer:
                 f"{r['id']} {r['money']}" for r in record["results"]))
         finally:
             self.arenas.discard(arena)
+            self.flush(arena.wave)
             for bot in arena.bots:
                 bot.arena = None
                 if bot.connected:
@@ -502,6 +588,8 @@ class ArenaServer:
         self.bots[name] = bot
         self.say(f"+ {name} joined from {sock.peer}" + (" (human)" if human else ""))
         bot.send({"type": "welcome", "id": name, "rules": self.rules.to_dict()})
+        if not human:
+            self.award("hello", [(name, 0)])
         self.enqueue(bot)
         try:
             while (text := await sock.recv()) is not None:

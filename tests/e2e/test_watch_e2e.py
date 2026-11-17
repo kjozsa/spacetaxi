@@ -6,6 +6,7 @@ import asyncio
 import json
 import threading
 import urllib.request
+from pathlib import Path
 
 import pytest
 
@@ -180,4 +181,43 @@ def test_watch_leaderboard_waits_for_the_first_round(browser, lonely):
     assert page.locator("#lbRows").inner_text().strip() == "WAITING FOR THE FIRST ROUND"
     assert page.locator("#lb").is_visible()
     page.close()
+    assert errors == []
+
+
+def test_watch_pops_up_milestones_and_standings_render(browser, lonely, tmp_path):
+    base, server = lonely
+    shots = Path(__file__).parent / "screenshots"
+    page, errors = open_watch(browser, base)
+    page.click("#splash")
+    page.wait_for_function("window.spacetaxi.connected", timeout=10000)
+
+    async def hello(name: str) -> None:
+        sock = await ws.connect(base.replace("http", "ws") + "/bot")
+        await sock.send(json.dumps({"type": "hello", "name": name, "protocol": 1}))
+        await sock.recv()  # welcome: the award has gone out
+        await sock.close()
+
+    t = threading.Thread(target=asyncio.run, args=(hello("anna"),))  # Playwright owns this loop
+    t.start()
+    t.join(10)
+    page.wait_for_function("window.spacetaxi.milestones.length >= 1", timeout=5000)
+    assert state(page)["milestones"] == ["ANNA · HELLO · P2 · +18"]
+    assert state(page)["sfx"]["fanfare"] == 1
+    toast = page.locator("#toasts .toast")
+    assert toast.is_visible() and toast.inner_text() == "ANNA · HELLO · P2 · +18"
+    page.wait_for_timeout(400)
+    page.screenshot(path=str(shots / "milestone.png"))
+    page.close()
+
+    board = browser.new_page(viewport={"width": 1920, "height": 1080})
+    board.on("pageerror", lambda e: errors.append(str(e)))
+    board.goto(base + "/standings")
+    board.wait_for_function("window.spacetaxi.standings && window.spacetaxi.standings.standings.length === 2",
+                            timeout=5000)
+    rows = board.locator("#rows tr")
+    assert rows.count() == 2
+    assert "BOT0" in rows.nth(0).inner_text() and "25" in rows.nth(0).inner_text()
+    assert board.locator("#rows .badge.on").count() == 2
+    board.screenshot(path=str(shots / "standings.png"))
+    board.close()
     assert errors == []

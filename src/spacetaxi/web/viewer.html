@@ -88,6 +88,22 @@ body.live #bar { justify-content: flex-end; }
 #lb li .avg { color: #ffffff; font-variant-numeric: tabular-nums; }
 #lb li:first-child .name { color: #ffd23f; }
 #lb li .tag, #lb li .human { font-size: 10px; align-self: center; color: #04030b; background: #ffffff; padding: 3px 4px; }
+/* Milestone pop-ups on /watch, at the top of the arena, above the splash. */
+#toasts {
+  position: absolute; left: 0; width: 1500px; top: 140px; z-index: 6; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+}
+#toasts .toast {
+  font-size: 30px; color: #7dff5a; background: rgba(4,3,11,.9); border: 3px solid #7dff5a;
+  padding: 16px 26px; text-shadow: 0 0 10px #7dff5a; box-shadow: 0 0 22px rgba(125,255,90,.45);
+  animation: pop 4.5s ease-out forwards;
+}
+#toasts .toast.first { color: #ffd23f; border-color: #ffd23f; text-shadow: 0 0 10px #ffd23f; box-shadow: 0 0 26px rgba(255,210,63,.55); }
+@keyframes pop {
+  0% { transform: scale(.4); opacity: 0; } 8% { transform: scale(1.08); opacity: 1; }
+  14% { transform: scale(1); } 85% { opacity: 1; } 100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) { #toasts .toast { animation: none; } }
 /* Fly mode (`spacetaxi serve`'s /fly): a person flies one taxi. The join form, the queue, the
    results, the leave button and the touch controls sit outside the scaled stage, so they keep
    their size on a phone. */
@@ -155,6 +171,7 @@ body.fly #bar { justify-content: flex-end; }
     <span class="queue" id="queue"></span>
     <span class="hint">SPACE PLAY/PAUSE &middot; 1-4 SPEED &middot; C SCREEN &middot; M OR SOUND BUTTON MUTE &middot; D DEBUG</span>
   </button>
+  <div id="toasts" aria-live="polite"></div>
   <aside id="lb" hidden aria-label="Leaderboard">
     <h2>LEADERBOARD</h2>
     <div class="sub" id="lbSub">AVG $ PER ROUND</div>

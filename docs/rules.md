@@ -225,6 +225,53 @@ can run side by side), then every arena's `round_start`, `tick` (with the specta
 round that said `"client": "human"` (a list of ids, often empty). A spectator that connects mid-round first gets each running
 arena's `round_start` and latest `tick`. A spectator that falls behind loses ticks.
 
+Spectators also get one `milestone` message per milestone award (see Milestones): `name`
+reached `milestone` in `place` and scored `points`. Bots never receive it.
+
+```json
+{"type": "milestone", "name": "anna", "milestone": "paid", "place": 3, "points": 15}
+```
+
+## Milestones
+
+The arena is a race: points go to whoever reaches each milestone first, Formula 1 style, from
+the first `hello` on. The server detects the milestones itself; each name scores each milestone
+once, however often it reaches it again.
+
+| #  | Milestone     | Reached when                                                                     |
+|----|---------------|----------------------------------------------------------------------------------|
+| 1  | `hello`       | the bot is welcomed (its `hello` is accepted)                                    |
+| 2  | `liftoff`     | its taxi ends 50 ticks in a row of one round `flying` with no `crash` (a crash, a landing or a new round restarts the count) |
+| 3  | `touchdown`   | its taxi has a `landed` event                                                    |
+| 4  | `fare`        | its taxi has a `pickup` event                                                    |
+| 5  | `paid`        | its taxi has a `deliver` event                                                   |
+| 6  | `clean`       | at `round_end`: a round with 0 crashes and at least 1 delivery                   |
+| 7  | `hat_trick`   | at `round_end`: 3 or more deliveries in the round                                |
+| 8  | `beat_greedy` | at `round_end`: money in the round above the greedy benchmark                    |
+| 9  | `beat_pilot`  | at `round_end`: money in the round above the pilot benchmark                     |
+
+- **Points.** The 1st to 10th name to reach a milestone score 25, 18, 15, 12, 10, 8, 6, 4, 2
+  and 1 points; later names score 0 but still get the milestone's badge.
+- **Ties.** Names that reach a milestone on the same tick (all arenas of a wave tick on one
+  clock, so the same tick number in two arenas of a wave is the same moment) share the place
+  and its points, and the next place is skipped: two names in 2nd place both score 18, the
+  next name is 4th. For milestones 6 to 9, all reached at the same `round_end`, higher round
+  money places first, and names with equal money tie.
+- **Rounds of one.** Milestones 6 to 9 count only in rounds with at least 2 taxis.
+- **Benchmarks.** At start the server simulates 20 seeded rounds on the served map with the
+  served rules: `greedy` against 3 greedy copies and `pilot` against 3 greedy copies. Each
+  bot's average money per round (rounded, at least 1) is its benchmark. The simulation runs in
+  the background: until a benchmark is known, its milestone is not awarded, and a round counts
+  it only when the benchmark was known at the round's start. `spacetaxi serve --benchmark
+  greedy=N --benchmark pilot=N` gives them instead. The server prints the values in use and the
+  standings page shows them.
+- **Humans** (`"client": "human"` in `hello`) never score and have no standings row.
+- **Standings.** Points belong to the name, so a bot that reconnects under the same name keeps
+  them. With `spacetaxi serve --standings FILE` the standings are saved to that JSON file after
+  every award and loaded from it at start, so a restart keeps the race. `/standings` on the
+  server is the projector page of the race, `/standings.json` its data; the server log prints
+  one line per award.
+
 ## Messages
 
 Every message is one JSON object with a `type`. Server to bot: `welcome`, `queued`,
