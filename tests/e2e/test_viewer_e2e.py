@@ -6,7 +6,6 @@ explosion, a `+$` popup, the podium) to `tests/e2e/screenshots/` instead of a te
 """
 
 import json
-import os
 import re
 import socket
 import subprocess
@@ -22,9 +21,8 @@ from spacetaxi.show import load_replay
 from spacetaxi.sim import Rules
 from spacetaxi.viewer import build_html
 
-sync_api = pytest.importorskip("playwright.sync_api")
+pytest.importorskip("playwright.sync_api")
 
-SCREENSHOTS = Path(__file__).parent / "screenshots"
 LAST = Rules().round_ticks
 
 
@@ -41,18 +39,6 @@ def page_file(replay, tmp_path_factory):
     out = tmp_path_factory.mktemp("view") / "v.html"
     assert main(["view", str(replay), "--out", str(out)]) == 0
     return out
-
-
-@pytest.fixture(scope="module")
-def browser():
-    with sync_api.sync_playwright() as p:
-        try:
-            b = p.chromium.launch()
-        except Exception as exc:  # the browser is not installed
-            pytest.skip(f"headless Chromium unavailable ({exc.__class__.__name__}); "
-                        "run `uv run playwright install chromium`")
-        yield b
-        b.close()
 
 
 def open_page(browser, page_file, **kwargs):
@@ -87,14 +73,6 @@ def splash_page(browser, page_file):
 def viewer(splash_page):
     insert_coin(splash_page)
     return splash_page
-
-
-@pytest.fixture(scope="module")
-def shots(tmp_path_factory):
-    if os.environ.get("SPACETAXI_SCREENSHOTS"):
-        SCREENSHOTS.mkdir(exist_ok=True)
-        return SCREENSHOTS
-    return tmp_path_factory.mktemp("shots")
 
 
 def state(page):

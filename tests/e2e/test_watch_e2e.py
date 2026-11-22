@@ -4,10 +4,8 @@ Install the browser once: `uv run playwright install chromium`. Without it these
 
 import asyncio
 import json
-import os
 import threading
 import urllib.request
-from pathlib import Path
 
 import pytest
 
@@ -16,21 +14,9 @@ from spacetaxi.maps import load_map
 from spacetaxi.server import ArenaServer
 from spacetaxi.sim import Rules
 
-sync_api = pytest.importorskip("playwright.sync_api")
+pytest.importorskip("playwright.sync_api")
 
 RULES = Rules(tick_ms=100, deadline_ms=80, round_ticks=40)
-
-
-@pytest.fixture(scope="module")
-def browser():
-    with sync_api.sync_playwright() as p:
-        try:
-            b = p.chromium.launch()
-        except Exception as exc:  # the browser is not installed
-            pytest.skip(f"headless Chromium unavailable ({exc.__class__.__name__}); "
-                        "run `uv run playwright install chromium`")
-        yield b
-        b.close()
 
 
 async def scripted_bot(port: int, name: str) -> None:
@@ -45,49 +31,22 @@ async def scripted_bot(port: int, name: str) -> None:
                 "debug": {"say": f"{name} here", "path": [[3, 3], [4, 3]]}}))
 
 
-def run_arena(bots: int, fill_seconds: float):
-    """An arena server with `bots` scripted bots; yields (base URL, server)."""
+def run_arena(serve_arena, bots: int, fill_seconds: float):
+    """An arena server with `bots` scripted bots; returns (base URL, server)."""
     server = ArenaServer(load_map("cavern"), RULES, fill_seconds, seed=1, max_arenas=3)
-    ready = threading.Event()
-    box = {}
-
-    def run() -> None:
-        loop = asyncio.new_event_loop()
-        box["loop"] = loop
-        srv = loop.run_until_complete(server.start("127.0.0.1", 0))
-        box["srv"] = srv
-        port = srv.sockets[0].getsockname()[1]
-        # keep the tasks: the loop holds only weak references to them
-        box["bots"] = [loop.create_task(scripted_bot(port, f"bot{i}")) for i in range(bots)]
-        ready.set()
-        loop.run_forever()
-
-    thread = threading.Thread(target=run, daemon=True)
-    thread.start()
-    assert ready.wait(10)
-    port = box["srv"].sockets[0].getsockname()[1]
-    yield f"http://127.0.0.1:{port}", server
-
-    async def shutdown() -> None:
-        box["srv"].close()
-        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-        for t in tasks:
-            t.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-
-    asyncio.run_coroutine_threadsafe(shutdown(), box["loop"]).result(10)
-    box["loop"].call_soon_threadsafe(box["loop"].stop)
-    thread.join(5)
+    base, server, _ = serve_arena(server, lambda loop, port: [
+        loop.create_task(scripted_bot(port, f"bot{i}")) for i in range(bots)])
+    return base, server
 
 
 @pytest.fixture
-def two_arenas():
-    yield from run_arena(bots=8, fill_seconds=0.2)
+def two_arenas(serve_arena):
+    return run_arena(serve_arena, bots=8, fill_seconds=0.2)
 
 
 @pytest.fixture
-def lonely():
-    yield from run_arena(bots=1, fill_seconds=600)
+def lonely(serve_arena):
+    return run_arena(serve_arena, bots=1, fill_seconds=600)
 
 
 def open_watch(browser, base):
@@ -185,10 +144,8 @@ def test_watch_leaderboard_waits_for_the_first_round(browser, lonely):
     assert errors == []
 
 
-def test_watch_pops_up_milestones_and_standings_render(browser, lonely, tmp_path):
+def test_watch_pops_up_milestones_and_standings_render(browser, lonely, shots):
     base, server = lonely
-    shots = Path(__file__).parent / "screenshots" if os.environ.get("SPACETAXI_SCREENSHOTS") \
-        else tmp_path
     page, errors = open_watch(browser, base)
     page.click("#splash")
     page.wait_for_function("window.spacetaxi.connected", timeout=10000)
