@@ -133,10 +133,10 @@ def test_the_address_given_wins_over_the_bound_one():
     assert "ws://10.0.0.7:8000/bot" in card and "HOST:PORT" not in card
 
 
-def test_missions_follow_the_rules_and_only_the_first_three_have_a_prompt():
+def test_missions_follow_the_rules_and_only_the_first_has_a_prompt():
     missions = parse_missions((DOCS / "missions.md").read_text(encoding="utf-8"))
     assert [m["id"] for m in missions] == rules_milestones() == list(MILESTONES)
-    assert [m["id"] for m in missions if m["prompt"]] == ["hello", "liftoff", "touchdown"]
+    assert [m["id"] for m in missions if m["prompt"]] == ["hello"]
     for m in missions:
         assert m["goal"] and m["hint"] and "\n" not in m["goal"] + m["hint"]
     assert "NAME" in missions[0]["prompt"] and "ws://HOST:PORT/bot" in missions[0]["prompt"]

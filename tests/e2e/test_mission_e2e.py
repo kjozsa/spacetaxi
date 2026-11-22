@@ -106,19 +106,14 @@ def test_mission_page_one_milestone_at_a_time(browser, arena, tmp_path):
 
     assert page.locator("#count").inner_text() == "MISSION 2 OF 9"
     assert page.locator("#mid").inner_text() == "liftoff"
-    assert page.locator("#promptBox").is_visible()
-    assert "Hovering is enough" in page.locator("#hint").inner_text()
+    assert not page.locator("#promptBox").is_visible()
+    assert "stay up" in page.locator("#hint").inner_text()
     assert page.locator("#next").inner_text().startswith("+18 IF YOU ARE NEXT")
     assert page.locator("#done .chip").all_inner_texts() == ["hello P3 +15"]
     assert "15 PTS" in page.locator("#score").inner_text()
     assert "touchdown" not in page.locator("#view").inner_text()
     assert st(page)["celebrated"] == []
     page.screenshot(path=str(shots / "mission-390.png"), full_page=True)
-
-    # the copy button puts the prompt with the name on the clipboard (or selects it)
-    page.click("#copy")
-    page.wait_for_function("['COPIED', 'SELECTED'].includes(document.getElementById('copy').textContent)",
-                           timeout=2000)
 
     # two awards at once: celebrated one after the other, then the next mission slides in
     award(("liftoff", "Anna"), ("touchdown", "Anna"))
@@ -198,6 +193,10 @@ def test_mission_page_first_prompt_has_the_name_and_the_address(browser, arena):
     assert f"ws://{host}/bot as Bob " in prompt and f"http://{host}/brief.md" in prompt
     assert page.locator("#next").inner_text().startswith("+15 IF YOU ARE NEXT")
     assert "NO RANK YET" in page.locator("#score").inner_text()
+    # the copy button puts the prompt with the name on the clipboard (or selects it)
+    page.click("#copy")
+    page.wait_for_function("['COPIED', 'SELECTED'].includes(document.getElementById('copy').textContent)",
+                           timeout=2000)
     context.close()
 
 
