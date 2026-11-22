@@ -70,6 +70,7 @@ def replay_data(path: str) -> list[dict]:
             "pads": start["pads"],
             "players": players,
             "humans": start.get("humans", []),
+            "house": start.get("house", []),
             "rules": rules,
             "ticks": [compact_tick(players, t, rules["units_per_cell"]) for t in ticks],
         })

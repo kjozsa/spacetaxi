@@ -112,6 +112,7 @@ function prepareRound(data) {
   return {
     data, ticks: data.ticks, W, H, C, OX, OY, static: st, names,
     humans: new Set(data.humans || []),
+    house: new Set(data.house || []),
     padById: Object.fromEntries(data.pads.map(p => [p.id, p])),
     facing: data.players.map(() => 1),
     shown: data.players.map(() => 0),   // the leaderboard's money, counting up to the real one
@@ -667,6 +668,9 @@ function draw(tnow, dt) {
     } else if (R.humans.has(R.data.players[p])) {
       tag(x, y + 14 * k + 26, "HUMAN", "#ffffff", k);
       window.spacetaxi.marked.push(R.data.players[p]);
+    } else if (R.house.has(R.data.players[p])) {
+      tag(x, y + 14 * k + 26, "HOUSE", "#ffffff", k);
+      window.spacetaxi.marked.push(R.data.players[p]);
     }
   }
   drawEffects(dt);
@@ -898,7 +902,8 @@ function onLive(msg) {
   if (msg.type === "round_start") {
     const rules = { ...ROUNDS[0].rules, ...(msg.rules || {}) };
     live.slots[slot] = { round: msg.round, arena: slot, map: msg.map, pads: msg.pads,
-                         players: msg.players, humans: msg.humans || [], rules, ticks: [],
+                         players: msg.players, humans: msg.humans || [],
+                         house: msg.house || [], rules, ticks: [],
                          over: false };
     live.running.add(slot);
     live.latest = slot;
@@ -960,6 +965,7 @@ async function loadLeaderboard() {
     const li = document.createElement("li");
     for (const [cls, text] of [["rank", `${n + 1}.`], ["name", r.name.toUpperCase()],
                                ...(r.human ? [["human", "HUMAN"]] : []),
+                               ...(r.house ? [["house", "HOUSE"]] : []),
                                ["avg", `${r.avg_money < 0 ? "-" : ""}$${Math.abs(Math.round(r.avg_money))}`]]) {
       const span = document.createElement("span"); span.className = cls; span.textContent = text;
       li.appendChild(span);

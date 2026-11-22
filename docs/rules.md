@@ -268,6 +268,9 @@ once, however often it reaches it again.
   greedy=N --benchmark pilot=N` gives them instead. The server prints the values in use and the
   standings page shows them.
 - **Humans** (`"client": "human"` in `hello`) never score and have no standings row.
+- **House bots** named with `spacetaxi serve --house NAME` never score either and have no
+  standings row, so places go to the participants as if the house bots were not in the race;
+  they still count as taxis for milestones 6 to 9.
 - **Standings.** Points belong to the name, so a bot that reconnects under the same name keeps
   them. With `spacetaxi serve --standings FILE` the standings are saved to that JSON file after
   every award and loaded from it at start, so a restart keeps the race. `/standings` on the
