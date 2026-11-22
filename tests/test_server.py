@@ -294,7 +294,7 @@ def test_log_rebuilds_the_leaderboard_on_restart(tmp_path):
     assert {r["name"] for r in after["leaderboard"]} == {"a", "b", "c"}
     row = next(r for r in after["leaderboard"] if r["name"] == "c")
     assert set(row) == {"name", "rounds", "total_money", "avg_money", "deliveries", "crashes",
-                        "late_pct", "human"}
+                        "late_pct", "human", "house"}
     assert row["rounds"] == 1 and row["late_pct"] == 100.0
     status, ctype, body = restarted.http("/")
     assert status == 200 and b"leaderboard.json" in body
@@ -310,9 +310,9 @@ def test_leaderboard_totals_and_order():
                             "ticks": 10, "late": 3}]})
     assert board.table() == [
         {"name": "b", "rounds": 1, "total_money": 300, "avg_money": 300.0, "deliveries": 4,
-         "crashes": 0, "late_pct": 0.0, "human": False},
+         "crashes": 0, "late_pct": 0.0, "human": False, "house": False},
         {"name": "a", "rounds": 2, "total_money": 150, "avg_money": 75.0, "deliveries": 3,
-         "crashes": 1, "late_pct": 20.0, "human": False},
+         "crashes": 1, "late_pct": 20.0, "human": False, "house": False},
     ]
 
 
@@ -322,7 +322,9 @@ def test_cli_serve_prints_lan_urls():
         port = s.getsockname()[1]
     env = {**os.environ, "PYTHONUNBUFFERED": "1"}
     proc = subprocess.Popen([sys.executable, "-m", "spacetaxi", "serve", "--port", str(port),
-                             "--fill-seconds", "2"], stdout=subprocess.PIPE, text=True, env=env)
+                             "--fill-seconds", "2", "--house", "ace", "--house", "gus",
+                             "--benchmark", "greedy=1", "--benchmark", "pilot=1"],
+                            stdout=subprocess.PIPE, text=True, env=env)
     try:
         lines = []
         deadline = time.monotonic() + 15
@@ -336,6 +338,7 @@ def test_cli_serve_prints_lan_urls():
         text = "".join(lines)
         assert f"ws://" in text and f":{port}/bot" in text and f":{port}/" in text
         assert f":{port}/card" in text and f":{port}/mission" in text
+        assert "house bots (never score): ace, gus" in text
     finally:
         proc.terminate()
         proc.wait(5)

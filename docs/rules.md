@@ -223,7 +223,8 @@ and send nothing. The server first sends `{"type": "spectate", "arenas": 3}` (ho
 can run side by side), then every arena's `round_start`, `tick` (with the spectator-only
 `moves`, as in a replay) and `round_end`, each with two more fields: `arena`, the arena's slot
 (1 to `arenas`), and `round`. A spectator's `round_start` also has `humans`: the players of the
-round that said `"client": "human"` (a list of ids, often empty). A spectator that connects mid-round first gets each running
+round that said `"client": "human"` (a list of ids, often empty), and `house`: the players of
+the round named with `spacetaxi serve --house` (a list of ids, often empty). A spectator that connects mid-round first gets each running
 arena's `round_start` and latest `tick`. A spectator that falls behind loses ticks.
 
 Spectators also get one `milestone` message per milestone award (see Milestones): `name`
@@ -268,6 +269,9 @@ once, however often it reaches it again.
   greedy=N --benchmark pilot=N` gives them instead. The server prints the values in use and the
   standings page shows them.
 - **Humans** (`"client": "human"` in `hello`) never score and have no standings row.
+- **House bots** named with `spacetaxi serve --house NAME` never score either and have no
+  standings row, so places go to the participants as if the house bots were not in the race;
+  they still count as taxis for milestones 6 to 9.
 - **Standings.** Points belong to the name, so a bot that reconnects under the same name keeps
   them. With `spacetaxi serve --standings FILE` the standings are saved to that JSON file after
   every award and loaded from it at start, so a restart keeps the race. `/standings` on the

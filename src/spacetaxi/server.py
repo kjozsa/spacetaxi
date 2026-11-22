@@ -18,7 +18,10 @@ or vanished bot never holds up its arena or the others; a bot whose outbox backs
 
 A client whose `hello` has `"client": "human"` is a person flying by hand (the `/fly` page);
 the server treats it as any bot, but marks it as human on the leaderboard (`human: true`), in the
-log and to spectators (`humans` in `round_start`).
+log and to spectators (`humans` in `round_start`). Names given in `house` are the house bots,
+there to make rounds and to be beaten: they play like any bot, but never reach a milestone (as
+humans), are marked `house: true` on the leaderboard and to spectators (`house` in
+`round_start`), and are left out of the standings.
 
 `/` is the leaderboard page and `/leaderboard.json` its data. `/fly` is the page to fly in the
 arena by hand: a `/bot` client in the browser with the neon viewer. `/watch` is the neon viewer fed
@@ -142,8 +145,9 @@ class Bot:
 class Leaderboard:
     """Totals per name, from `round_end` log records."""
 
-    def __init__(self):
+    def __init__(self, house=()):
         self.rows: dict[str, dict] = {}
+        self.house = set(house)  # names marked as house bots
 
     def add(self, record: dict) -> None:
         for r in record["results"]:
@@ -168,6 +172,7 @@ class Leaderboard:
                 "crashes": row["crashes"],
                 "late_pct": round(100 * row["late"] / row["ticks"], 1) if row["ticks"] else 0.0,
                 "human": row.get("human", False),
+                "house": name in self.house,
             })
         out.sort(key=lambda r: (-r["avg_money"], -r["total_money"], r["name"]))
         return out
@@ -185,6 +190,7 @@ class Arena:
         self.bots = bots
         self.names = [b.name for b in bots]
         self.humans = [b.name for b in bots if b.human]
+        self.house = [n for n in self.names if n in server.house]
         self.rules = server.rules
         self.world = World(server.map, self.rules, seed=seed, players=self.names)
         self.playing = 0  # the tick whose moves are being collected, 0 before the first
@@ -193,7 +199,7 @@ class Arena:
         self.late = {name: 0 for name in self.names}
         self.replay = None
         self.shown: dict[str, str] = {}  # the latest message of each type sent to spectators
-        self.tracker = Tracker(self.names, self.humans)
+        self.tracker = Tracker(self.names, [*self.humans, *self.house])
         self.benchmarks = dict(server.benchmarks)  # as at round start: known ones count
         self.stepped = 0  # the last tick played (round_ticks + 1 once the round has ended)
         for bot in bots:
@@ -263,7 +269,8 @@ class Arena:
             path = self.server.replays / f"round-{self.number:05d}.jsonl"
             self.replay = open(path, "w", encoding="utf-8")
         try:
-            self.emit({**round_start, "humans": list(self.humans)})
+            self.emit({**round_start, "humans": list(self.humans),
+                       "house": list(self.house)})
             self.broadcast(round_start)
             tick_ns = rules.tick_ms * 1_000_000
             if t0 is None:
@@ -313,7 +320,8 @@ class ArenaServer:
     def __init__(self, game_map: Map, rules: Rules | None = None, fill_seconds: float = 10,
                  log: str | Path | None = None, replays: str | Path | None = None,
                  seed: int | None = None, max_arenas: int = MAX_ARENAS, say=None,
-                 standings: str | Path | None = None, benchmarks: dict | None = None):
+                 standings: str | Path | None = None, benchmarks: dict | None = None,
+                 house=()):
         self.map = game_map
         self.rules = rules or Rules()
         self.fill_ns = int(fill_seconds * 1e9)
@@ -329,7 +337,8 @@ class ArenaServer:
         self.watch_page: bytes | None = None  # built on the first request
         self.fly_page: bytes | None = None
         self.tasks: set[asyncio.Task] = set()
-        self.leaderboard = Leaderboard()
+        self.house = set(house)  # the house bots' names: they never score milestones
+        self.leaderboard = Leaderboard(self.house)
         self.rounds = 0
         self.wave = 0
         self.wave_t0 = 0  # perf_counter_ns when the running wave's clock started
@@ -376,8 +385,9 @@ class ArenaServer:
                 self.standings_page = build_standings_html().encode("utf-8")
             return 200, "text/html; charset=utf-8", self.standings_page
         if path == "/standings.json":
-            data = {"standings": self.standings.table(), "milestones": list(MILESTONES),
-                    "points": list(POINTS), "benchmarks": self.benchmarks,
+            data = {"standings": self.standings.table(self.house),
+                    "milestones": list(MILESTONES), "points": list(POINTS),
+                    "benchmarks": self.benchmarks,
                     "reached": {m: self.standings.reached(m) for m in MILESTONES}}
             return 200, "application/json", json.dumps(data).encode("utf-8")
         if path == "/mission":
@@ -622,9 +632,11 @@ class ArenaServer:
         human = hello.get("client") == "human"
         bot = Bot(name, sock, human=human)
         self.bots[name] = bot
-        self.say(f"+ {name} joined from {sock.peer}" + (" (human)" if human else ""))
+        house = name in self.house
+        self.say(f"+ {name} joined from {sock.peer}" + (" (human)" if human else "")
+                 + (" (house)" if house else ""))
         bot.send({"type": "welcome", "id": name, "rules": self.rules.to_dict()})
-        if not human:
+        if not human and not house:
             self.award("hello", [(name, 0)])
         self.enqueue(bot)
         try:

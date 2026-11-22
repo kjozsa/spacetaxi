@@ -128,6 +128,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--benchmark", action="append", default=[], metavar="BOT=MONEY",
         help="the money beat_greedy / beat_pilot must beat, e.g. greedy=300 (repeatable; "
              "default: the bot's best round money in 20 rounds simulated on the map at start)")
+    serve_cmd.add_argument(
+        "--house", action="append", default=[], metavar="NAME",
+        help="a house bot's name: it plays, but never scores milestones and has no standings "
+             "row (repeatable)")
     serve_cmd.set_defaults(func=cmd_serve)
 
     connect_cmd = commands.add_parser(
@@ -362,7 +366,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
         arena = ArenaServer(game_map, rules, args.fill_seconds, log=args.log,
                             replays=args.replays, seed=args.seed,
                             say=lambda text: print(text, flush=True),
-                            standings=args.standings, benchmarks=benchmarks)
+                            standings=args.standings, benchmarks=benchmarks,
+                            house=args.house)
     except (MapError, RuleError, OSError, ValueError, KeyError) as exc:
         print(f"spacetaxi serve: error: {exc}", file=sys.stderr)
         return 2
@@ -379,6 +384,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
                   f"standings http://{host}:{args.port}/standings   "
                   f"card http://{host}:{args.port}/card   "
                   f"mission http://{host}:{args.port}/mission")
+        if args.house:
+            print(f"house bots (never score): {', '.join(args.house)}")
         print("Ctrl-C stops", flush=True)
         async with server:
             await server.serve_forever()

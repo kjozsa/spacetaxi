@@ -426,3 +426,84 @@ def test_serve_refuses_a_broken_standings_file(tmp_path, bad, capsys):
     assert main(["serve", "--standings", str(path), "--benchmark", "greedy=1",
                  "--benchmark", "pilot=1"]) == 2
     assert "spacetaxi serve: error" in capsys.readouterr().err
+
+
+# --- house bots (serve --house NAME)
+
+
+def house_round(names, house, results):
+    """A round of `names` on a server with the house bots `house`, ended with `results`
+    as `Arena.run` ends it; returns the server."""
+    server = ArenaServer(load_map("cavern"), RULES, 0.3, seed=1, benchmarks=GIVEN, house=house)
+    bots = [SimpleNamespace(name=n, human=False, arena=None) for n in names]
+    arena = Arena(server, 1, bots, seed=1, wave=1)
+    for milestone, name, money in arena.tracker.round_end(results, arena.benchmarks):
+        server.pending.append((1, RULES.round_ticks + 1, milestone, name, money))
+    server.flush(1)
+    return server
+
+
+def test_house_bot_reaching_milestones_first_takes_no_place():
+    server = house_round(["ace", "anna"], ["ace"], [
+        result("ace", money=900, deliveries=4), result("anna", money=400, deliveries=3)])
+    awards = server.standings.awards
+    assert "ace" not in awards
+    for m in ("clean", "hat_trick", "beat_greedy"):
+        assert awards["anna"][m] == {"place": 1, "points": 25}
+    data = json.loads(server.http("/standings.json")[2])
+    assert [r["name"] for r in data["standings"]] == ["anna"]
+
+
+def test_house_bot_counts_as_a_taxi_for_round_end_milestones():
+    server = house_round(["anna", "gus"], ["gus"], [
+        result("anna", money=50, deliveries=1), result("gus", money=10)])
+    assert server.standings.awards["anna"]["clean"] == {"place": 1, "points": 25}
+    assert "gus" not in server.standings.awards
+
+
+def test_house_bot_left_out_of_standings_rows_from_an_older_file(tmp_path):
+    path = tmp_path / "standings.json"
+    path.write_text(json.dumps({"awards": {"ace": {"hello": {"place": 1, "points": 25}},
+                                           "anna": {"hello": {"place": 2, "points": 18}}}}))
+    server = ArenaServer(load_map("cavern"), RULES, 0.3, seed=1, benchmarks=GIVEN,
+                         standings=path, house=["ace"])
+    rows = json.loads(server.http("/standings.json")[2])["standings"]
+    assert [(r["name"], r["rank"]) for r in rows] == [("anna", 1)]
+
+
+def test_server_house_bot_plays_but_never_scores():
+    lines = []
+
+    async def main_():
+        server = ArenaServer(load_map("cavern"), RULES, 0.2, seed=1, say=lines.append,
+                             benchmarks={"greedy": -10**6, "pilot": -10**6}, house=["ace"])
+        srv, port = await start(server)
+        spec = await ws.connect(f"ws://127.0.0.1:{port}/spectate")
+        assert (await recv(spec))["type"] == "spectate"
+        ace = await join(port, "ace")
+        anna = await join(port, "anna")
+        await asyncio.gather(play(ace), play(anna))
+        await asyncio.sleep(0.05)
+        spectated = []
+        while (msg := await recv(spec)) is not None and msg["type"] != "round_end":
+            spectated.append(msg)
+        for s in (ace, anna, spec):
+            await s.close()
+        srv.close()
+        return server, spectated
+
+    server, spectated = asyncio.run(main_())
+    awards = server.standings.awards
+    assert "ace" not in awards
+    assert awards["anna"]["hello"] == {"place": 1, "points": 25}
+    assert awards["anna"]["beat_greedy"] == {"place": 1, "points": 25}  # 2 taxis with ace
+    assert all(m.get("name") != "ace" for m in spectated if m["type"] == "milestone")
+    [start_msg] = [m for m in spectated if m["type"] == "round_start"]
+    assert start_msg["house"] == ["ace"] and start_msg["humans"] == []
+    assert not any("milestone" in line and "ace" in line for line in lines)
+    rows = {r["name"]: r for r in json.loads(server.http("/leaderboard.json")[2])["leaderboard"]}
+    assert rows["ace"]["house"] is True and rows["anna"]["house"] is False
+    assert rows["ace"]["rounds"] == 1
+    standings = json.loads(server.http("/standings.json")[2])["standings"]
+    assert [r["name"] for r in standings] == ["anna"]
+

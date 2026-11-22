@@ -124,6 +124,16 @@ Each participant keeps `http://HOST:8000/mission` open next to their agent: it s
 next milestone (goal, a hint phrased as a question, a ready prompt for the first one only, from
 [docs/missions.md](docs/missions.md)) and celebrates each award.
 
+A participant flying alone never reaches milestones 6 to 9 (they need a round of at least 2
+taxis), so start house bots to fill the rounds, and name them to `serve` so they never take a
+place or points from the participants:
+
+```sh
+uv run spacetaxi serve --house ace --house gus
+uv run spacetaxi connect --bot pilot --name ace --server ws://HOST:8000/bot
+uv run spacetaxi connect --bot greedy --name gus --server ws://HOST:8000/bot
+```
+
 ## Shortcuts (fish)
 
 ```fish
