@@ -309,8 +309,7 @@ class Arena:
             "wave": self.wave,
             "time": time.strftime("%Y-%m-%dT%H:%M:%S"),
             "results": [{**r, "ticks": rules.round_ticks, "late": self.late[r["id"]],
-                         **({"human": True} if r["id"] in self.humans else {}),
-                         **({"house": True} if r["id"] in self.house else {})}
+                         **({"human": True} if r["id"] in self.humans else {})}
                         for r in results],
         }
 

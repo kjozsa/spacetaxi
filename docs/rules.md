@@ -223,7 +223,8 @@ and send nothing. The server first sends `{"type": "spectate", "arenas": 3}` (ho
 can run side by side), then every arena's `round_start`, `tick` (with the spectator-only
 `moves`, as in a replay) and `round_end`, each with two more fields: `arena`, the arena's slot
 (1 to `arenas`), and `round`. A spectator's `round_start` also has `humans`: the players of the
-round that said `"client": "human"` (a list of ids, often empty). A spectator that connects mid-round first gets each running
+round that said `"client": "human"` (a list of ids, often empty), and `house`: the players of
+the round named with `spacetaxi serve --house` (a list of ids, often empty). A spectator that connects mid-round first gets each running
 arena's `round_start` and latest `tick`. A spectator that falls behind loses ticks.
 
 Spectators also get one `milestone` message per milestone award (see Milestones): `name`

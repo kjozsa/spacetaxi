@@ -7,24 +7,14 @@ import urllib.request
 
 import pytest
 
-from spacetaxi import ws
 from spacetaxi.maps import load_map
 from spacetaxi.server import ArenaServer
 from spacetaxi.sim import Rules
+from test_fly_e2e import scripted_bot
 
 pytest.importorskip("playwright.sync_api")
 
 RULES = Rules(tick_ms=100, deadline_ms=80, round_ticks=30)
-
-
-async def scripted_bot(port: int, name: str) -> None:
-    sock = await ws.connect(f"ws://127.0.0.1:{port}/bot")
-    await sock.send(json.dumps({"type": "hello", "name": name, "protocol": 1}))
-    while (text := await sock.recv()) is not None:
-        msg = json.loads(text)
-        if msg["type"] == "tick":
-            await sock.send(json.dumps({"type": "move", "tick": msg["tick"], "ax": 0,
-                                        "ay": -1 if msg["tick"] % 2 else 0}))
 
 
 def get_json(base, path):
@@ -58,7 +48,7 @@ def test_house_bot_is_marked_and_never_scores(browser, serve_arena):
     data = get_json(base, "/standings.json")
     names = [r["name"] for r in data["standings"]]
     assert "ace" not in names and "guest" in names
-    assert "ace" not in server.standings.awards or not server.standings.awards["ace"]
+    assert "ace" not in server.standings.awards
 
     watch = browser.new_page(viewport={"width": 1920, "height": 1080})
     watch.goto(base + "/watch")

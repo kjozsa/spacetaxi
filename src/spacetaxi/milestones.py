@@ -136,7 +136,7 @@ class Standings:
         then by name; equal points and milestones share the rank."""
         rows = [{"name": name, "points": sum(a["points"] for a in got.values()),
                  "milestones": {m: got[m] for m in MILESTONES if m in got}}
-                for name, got in self.awards.items() if name not in set(leave_out)]
+                for name, got in self.awards.items() if name not in leave_out]
         rows.sort(key=lambda r: (-r["points"], -len(r["milestones"]), r["name"]))
         for i, row in enumerate(rows):
             before = rows[i - 1] if i else None

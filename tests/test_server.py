@@ -323,7 +323,8 @@ def test_cli_serve_prints_lan_urls():
     env = {**os.environ, "PYTHONUNBUFFERED": "1"}
     proc = subprocess.Popen([sys.executable, "-m", "spacetaxi", "serve", "--port", str(port),
                              "--fill-seconds", "2", "--house", "ace", "--house", "gus",
-                             "--benchmark", "greedy=1", "--benchmark", "pilot=1"], stdout=subprocess.PIPE, text=True, env=env)
+                             "--benchmark", "greedy=1", "--benchmark", "pilot=1"],
+                            stdout=subprocess.PIPE, text=True, env=env)
     try:
         lines = []
         deadline = time.monotonic() + 15

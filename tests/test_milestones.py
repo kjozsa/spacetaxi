@@ -471,12 +471,11 @@ def test_house_bot_left_out_of_standings_rows_from_an_older_file(tmp_path):
     assert [(r["name"], r["rank"]) for r in rows] == [("anna", 1)]
 
 
-def test_server_house_bot_plays_but_never_scores(tmp_path):
-    log = tmp_path / "results.jsonl"
+def test_server_house_bot_plays_but_never_scores():
     lines = []
 
     async def main_():
-        server = ArenaServer(load_map("cavern"), RULES, 0.2, seed=1, say=lines.append, log=log,
+        server = ArenaServer(load_map("cavern"), RULES, 0.2, seed=1, say=lines.append,
                              benchmarks={"greedy": -10**6, "pilot": -10**6}, house=["ace"])
         srv, port = await start(server)
         spec = await ws.connect(f"ws://127.0.0.1:{port}/spectate")
@@ -507,6 +506,4 @@ def test_server_house_bot_plays_but_never_scores(tmp_path):
     assert rows["ace"]["rounds"] == 1
     standings = json.loads(server.http("/standings.json")[2])["standings"]
     assert [r["name"] for r in standings] == ["anna"]
-    [record] = [json.loads(line) for line in log.read_text().splitlines()]
-    assert {r["id"]: r.get("house") for r in record["results"]} == {"ace": True, "anna": None}
 
