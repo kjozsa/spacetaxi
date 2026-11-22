@@ -15,7 +15,7 @@ from spacetaxi.maps import load_map
 from spacetaxi.play import simulate
 from spacetaxi.sim import CRASHED, FLYING, LANDED, Rules
 
-sync_api = pytest.importorskip("playwright.sync_api")
+pytest.importorskip("playwright.sync_api")
 
 
 def moves(seed: int) -> list[dict]:
@@ -30,18 +30,6 @@ def moves(seed: int) -> list[dict]:
 
 # Each seed was picked so its flight lands, takes off again, crashes and respawns.
 CASES = {"defaults": ([], 23), "gravity=3": (["--rule", "gravity=3"], 220)}
-
-
-@pytest.fixture(scope="module")
-def browser():
-    with sync_api.sync_playwright() as p:
-        try:
-            b = p.chromium.launch()
-        except Exception as exc:  # the browser is not installed
-            pytest.skip(f"headless Chromium unavailable ({exc.__class__.__name__}); "
-                        "run `uv run playwright install chromium`")
-        yield b
-        b.close()
 
 
 def page_file(tmp_path, rule_args):

@@ -3,9 +3,7 @@
 and event loop. Install the browser once: `uv run playwright install chromium`. Without it this
 test skips."""
 
-import asyncio
 import json
-import threading
 import urllib.request
 
 import pytest
@@ -15,21 +13,9 @@ from spacetaxi.maps import load_map
 from spacetaxi.server import ArenaServer
 from spacetaxi.sim import Rules
 
-sync_api = pytest.importorskip("playwright.sync_api")
+pytest.importorskip("playwright.sync_api")
 
 RULES = Rules(tick_ms=100, deadline_ms=80, round_ticks=40)
-
-
-@pytest.fixture(scope="module")
-def browser():
-    with sync_api.sync_playwright() as p:
-        try:
-            b = p.chromium.launch()
-        except Exception as exc:  # the browser is not installed
-            pytest.skip(f"headless Chromium unavailable ({exc.__class__.__name__}); "
-                        "run `uv run playwright install chromium`")
-        yield b
-        b.close()
 
 
 async def scripted_bot(port: int, name: str) -> None:
@@ -44,38 +30,11 @@ async def scripted_bot(port: int, name: str) -> None:
 
 
 @pytest.fixture
-def arena():
-    """An arena server with one scripted bot; yields (base URL, server)."""
+def arena(serve_arena):
+    """An arena server with one scripted bot; returns (base URL, server)."""
     server = ArenaServer(load_map("cavern"), RULES, 1.0, seed=1, max_arenas=3)
-    ready = threading.Event()
-    box = {}
-
-    def run() -> None:
-        loop = asyncio.new_event_loop()
-        box["loop"] = loop
-        srv = loop.run_until_complete(server.start("127.0.0.1", 0))
-        box["srv"] = srv
-        port = srv.sockets[0].getsockname()[1]
-        box["bot"] = loop.create_task(scripted_bot(port, "robo"))
-        ready.set()
-        loop.run_forever()
-
-    thread = threading.Thread(target=run, daemon=True)
-    thread.start()
-    assert ready.wait(10)
-    port = box["srv"].sockets[0].getsockname()[1]
-    yield f"http://127.0.0.1:{port}", server
-
-    async def shutdown() -> None:
-        box["srv"].close()
-        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-        for t in tasks:
-            t.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-
-    asyncio.run_coroutine_threadsafe(shutdown(), box["loop"]).result(10)
-    box["loop"].call_soon_threadsafe(box["loop"].stop)
-    thread.join(5)
+    base, server, _ = serve_arena(server, lambda loop, port: loop.create_task(scripted_bot(port, "robo")))
+    return base, server
 
 
 def open_page(browser, url, **kw):

@@ -5,9 +5,6 @@ tests skip."""
 
 import asyncio
 import json
-import os
-import threading
-from pathlib import Path
 
 import pytest
 
@@ -16,24 +13,12 @@ from spacetaxi.milestones import MILESTONES
 from spacetaxi.server import ArenaServer
 from spacetaxi.sim import Rules
 
-sync_api = pytest.importorskip("playwright.sync_api")
-
-
-@pytest.fixture(scope="module")
-def browser():
-    with sync_api.sync_playwright() as p:
-        try:
-            b = p.chromium.launch()
-        except Exception as exc:  # the browser is not installed
-            pytest.skip(f"headless Chromium unavailable ({exc.__class__.__name__}); "
-                        "run `uv run playwright install chromium`")
-        yield b
-        b.close()
+pytest.importorskip("playwright.sync_api")
 
 
 @pytest.fixture
-def arena(tmp_path):
-    """A server whose standings file has `Anna` with `hello` and `Full` with all nine; yields
+def arena(serve_arena, tmp_path):
+    """A server whose standings file has `Anna` with `hello` and `Full` with all nine; returns
     (base URL, award) where `award(milestone, name)` scores on the server's own loop."""
     awards = {"Anna": {"hello": {"place": 3, "points": 15}},
               "Full": {m: {"place": 1, "points": 25} for m in MILESTONES}}
@@ -41,53 +26,23 @@ def arena(tmp_path):
     path.write_text(json.dumps({"awards": awards}), encoding="utf-8")
     server = ArenaServer(load_map("cavern"), Rules(), 600, seed=1, standings=path,
                          benchmarks={"greedy": 300, "pilot": 450})
-    ready = threading.Event()
-    box = {}
-
-    def run() -> None:
-        loop = asyncio.new_event_loop()
-        box["loop"] = loop
-        box["srv"] = loop.run_until_complete(server.start("127.0.0.1", 0))
-        ready.set()
-        loop.run_forever()
-
-    thread = threading.Thread(target=run, daemon=True)
-    thread.start()
-    assert ready.wait(10)
-    port = box["srv"].sockets[0].getsockname()[1]
+    base, server, loop = serve_arena(server)
 
     def award(*pairs: tuple[str, str]) -> None:
         async def go() -> None:
             for milestone, name in pairs:
                 server.standings.award(milestone, [(name, 0)])
-        asyncio.run_coroutine_threadsafe(go(), box["loop"]).result(5)
+        asyncio.run_coroutine_threadsafe(go(), loop).result(5)
 
-    yield f"http://127.0.0.1:{port}", award
-
-    async def shutdown() -> None:
-        box["srv"].close()
-        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-        for t in tasks:
-            t.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-
-    asyncio.run_coroutine_threadsafe(shutdown(), box["loop"]).result(10)
-    box["loop"].call_soon_threadsafe(box["loop"].stop)
-    thread.join(5)
-
-
-def shots_dir(tmp_path: Path) -> Path:
-    return Path(__file__).parent / "screenshots" if os.environ.get("SPACETAXI_SCREENSHOTS") \
-        else tmp_path
+    return base, award
 
 
 def st(page) -> dict:
     return page.evaluate("window.spacetaxi")
 
 
-def test_mission_page_one_milestone_at_a_time(browser, arena, tmp_path):
+def test_mission_page_one_milestone_at_a_time(browser, arena, shots):
     base, award = arena
-    shots = shots_dir(tmp_path)
     context = browser.new_context(viewport={"width": 390, "height": 844})
     page = context.new_page()
     errors = []
