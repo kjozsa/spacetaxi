@@ -1,5 +1,7 @@
 # space taxi: the milestone race
 
+Open [http://HOST:PORT/mission](/mission) and follow it, one milestone at a time.
+
 ## The server
 
 - Your bot connects to `ws://HOST:PORT/bot`. Connect under **your first name**.

@@ -117,6 +117,31 @@ def build_doc_html(text: str, title: str) -> str:
             .replace("/*TITLE*/", html.escape(title)).replace("/*BODY*/", render(text)))
 
 
+def parse_missions(text: str) -> list[dict]:
+    """The missions of `docs/missions.md`: one `{id, goal, hint, prompt}` per `## id` section,
+    in file order, from its `Goal:`, `Hint:` and `Prompt:` lines (`prompt` None without one)."""
+    out = []
+    for section in text.split("\n## ")[1:]:
+        head, *lines = section.splitlines()
+        fields = {"id": head.strip(), "goal": "", "hint": "", "prompt": None}
+        for line in lines:
+            key, sep, value = line.partition(":")
+            if sep and key in ("Goal", "Hint", "Prompt"):
+                fields[key.lower()] = value.strip()
+        out.append(fields)
+    return out
+
+
+def build_mission_html(text: str) -> str:
+    """The participant's mission page (`spacetaxi serve`'s `/mission`), with the missions of
+    `text` (`docs/missions.md`, HOST:PORT already filled in) embedded; it polls
+    `/standings.json`."""
+    data = json.dumps(parse_missions(text), separators=(",", ":")).replace("<", "\\u003c")
+    font = base64.b64encode((WEB_DIR / "PressStart2P-Regular.ttf").read_bytes()).decode("ascii")
+    return ((WEB_DIR / "mission.html").read_text(encoding="utf-8").replace("/*FONT*/", font)
+            .replace("/*MISSIONS*/", data))
+
+
 def page(rounds: list[dict], mode: str) -> str:
     """The viewer page with `rounds` embedded; `mode` is `replay`, `live` or `fly`."""
     data = json.dumps(rounds, separators=(",", ":"))
