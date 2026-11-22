@@ -126,8 +126,8 @@ def parse_missions(text: str) -> list[dict]:
         fields = {"id": head.strip(), "goal": "", "hint": "", "prompt": None}
         for line in lines:
             key, sep, value = line.partition(":")
-            if sep and key.strip().lower() in ("goal", "hint", "prompt"):
-                fields[key.strip().lower()] = value.strip()
+            if sep and key in ("Goal", "Hint", "Prompt"):
+                fields[key.lower()] = value.strip()
         out.append(fields)
     return out
 

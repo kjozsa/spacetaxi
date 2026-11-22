@@ -201,6 +201,26 @@ def test_mission_page_first_prompt_has_the_name_and_the_address(browser, arena):
     context.close()
 
 
+def test_mission_page_name_form_stays_open_across_polls(browser, arena):
+    base, award = arena
+    context = browser.new_context(viewport={"width": 390, "height": 844})
+    page = context.new_page()
+    page.goto(base + "/mission")
+    page.fill("#askName", "Anna")
+    page.click("#ask button")
+    page.wait_for_function("window.spacetaxi.mission === 'liftoff'", timeout=5000)
+    page.click("#rename")
+    polls = page.evaluate("window.spacetaxi.polls")
+    award(("liftoff", "Anna"))
+    page.wait_for_function(f"window.spacetaxi.polls > {polls}", timeout=5000)
+    page.wait_for_timeout(200)
+    assert page.locator("#ask").is_visible()
+    assert not page.locator("#view").is_visible() and not page.locator("#finish").is_visible()
+    assert not page.locator("#party").is_visible()
+    assert page.evaluate("window.spacetaxi.celebrated") == []
+    context.close()
+
+
 def test_mission_page_survives_the_server_going_away(browser, arena):
     base, _ = arena
     context = browser.new_context(viewport={"width": 390, "height": 844})

@@ -199,15 +199,12 @@ $("ask").addEventListener("submit", e => {
 $("rename").addEventListener("click", e => { e.preventDefault(); askName(); });
 
 function row() {
-  return st.data.standings.find(r => r.name === st.name) || null;
-}
-
-function promptText(m) {
-  return m.prompt.replace(/NAME/g, st.name);
+  return st.data.standings.find(r => r.name === st.name);
 }
 
 function render() {
-  if (st.shown === null) {   // renamed, not polled yet for the new name: nothing to show
+  // the name form is open, or renamed and not polled yet for the new name: nothing to show
+  if (st.shown === null || !$("ask").hidden) {
     $("view").hidden = $("finish").hidden = true;
     return;
   }
@@ -270,7 +267,7 @@ function render() {
       : `TO BEAT: $${v}, ${bot.toUpperCase()}'S BEST ROUND`;
   }
   $("promptBox").hidden = !m.prompt;
-  if (m.prompt) $("prompt").textContent = promptText(m);
+  if (m.prompt) $("prompt").textContent = m.prompt.replace(/NAME/g, st.name);
 }
 
 function update(data) {
@@ -292,7 +289,7 @@ function update(data) {
 }
 
 function party() {
-  if (st.partying || !st.queue.length) return;
+  if (st.partying || !st.queue.length || !$("ask").hidden) return;
   const a = st.queue.shift();
   const name = st.name;   // a rename during the party drops this award from the page
   st.partying = a.milestone;
@@ -336,7 +333,7 @@ $("copy").addEventListener("click", async () => {
     ta.style.opacity = "0";
     document.body.appendChild(ta);
     ta.select();
-    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    try { ok = document.execCommand("copy"); } catch (e) { /* select below */ }
     ta.remove();
   }
   if (!ok) {   // select the prompt so a long press or Ctrl-C copies it
@@ -353,7 +350,7 @@ $("copy").addEventListener("click", async () => {
 let timer = null, inflight = false;
 async function poll() {
   if (inflight) return;
-  if (timer !== null) clearTimeout(timer);
+  clearTimeout(timer);
   timer = null;
   inflight = true;
   try {
