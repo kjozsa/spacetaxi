@@ -38,7 +38,8 @@ wait in `pending` until every arena of their wave has played that tick. Every aw
 and sent to spectators as `milestone`. `/standings` is the projector page of the race and
 `/standings.json` its data. `/card` is the participant card and `/brief` the agent brief
 (`docs/participant-card.md`, `docs/brief.md`, rendered, with `address` filled in for HOST:PORT;
-`/brief.md` is the raw Markdown). The house bots' benchmarks are simulated in a thread at start,
+`/brief.md` is the raw Markdown). `/mission` is each participant's own page: their next
+milestone only, from `docs/missions.md`, polling `/standings.json`. The house bots' benchmarks are simulated in a thread at start,
 unless `benchmarks` gives them.
 """
 
@@ -57,7 +58,8 @@ from .milestones import (BENCHMARK_BOTS, BENCHMARK_ROUNDS, MILESTONES, POINTS, S
 from .milestones import benchmarks as simulate_benchmarks
 from .runner import check_move, clean_debug
 from .sim import Rules, World
-from .viewer import build_doc_html, build_fly_html, build_live_html, build_standings_html
+from .viewer import (build_doc_html, build_fly_html, build_live_html, build_mission_html,
+                     build_standings_html)
 
 WEB_DIR = Path(__file__).parent / "web"
 
@@ -374,6 +376,9 @@ class ArenaServer:
                     "points": list(POINTS), "benchmarks": self.benchmarks,
                     "reached": {m: self.standings.reached(m) for m in MILESTONES}}
             return 200, "application/json", json.dumps(data).encode("utf-8")
+        if path == "/mission":
+            text = doc_text("missions.md").replace("HOST:PORT", self.address or "HOST:PORT")
+            return 200, "text/html; charset=utf-8", build_mission_html(text).encode("utf-8")
         if path in DOC_PAGES:
             name, title = DOC_PAGES[path]
             text = doc_text(name).replace("HOST:PORT", self.address or "HOST:PORT")

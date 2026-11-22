@@ -377,7 +377,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
             print(f"  leaderboard http://{host}:{args.port}/   bots ws://{host}:{args.port}/bot   "
                   f"fly by hand http://{host}:{args.port}/fly   "
                   f"standings http://{host}:{args.port}/standings   "
-                  f"card http://{host}:{args.port}/card")
+                  f"card http://{host}:{args.port}/card   "
+                  f"mission http://{host}:{args.port}/mission")
         print("Ctrl-C stops", flush=True)
         async with server:
             await server.serve_forever()

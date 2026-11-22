@@ -120,6 +120,9 @@ it on the projector at the start and leave it open on phones. Participants give 
 brief, `http://HOST:8000/brief` (raw Markdown at `/brief.md`, from [docs/brief.md](docs/brief.md)),
 not the card: the milestones are for the people, who slice the work one small prompt per
 milestone. During the race keep `/standings` on the projector.
+Each participant keeps `http://HOST:8000/mission` open next to their agent: it shows only their
+next milestone (goal, hint, a ready prompt for the first three, from
+[docs/missions.md](docs/missions.md)) and celebrates each award.
 
 ## Shortcuts (fish)
 

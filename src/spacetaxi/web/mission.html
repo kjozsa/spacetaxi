@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spacetaxi: your mission</title>
+<style>
+@font-face {
+  font-family: "Press Start 2P";
+  src: url(data:font/ttf;base64,/*FONT*/) format("truetype");
+}
+/* One participant's page beside their editor or on their phone: only the current milestone,
+   big, in the neon style of /card and /standings. The pixel font for labels, a plain monospace
+   for the text so it reads on a phone. */
+:root {
+  --bg: #04030b; --panel: #0e0c1c; --line: #2a2546; --fg: #e9e6ff; --muted: #9a94c4;
+  --cyan: #2ef2ff; --pink: #ff3df0; --gold: #ffd23f; --green: #7dff5a; --violet: #7a5cff;
+  --pixel: "Press Start 2P", "Courier New", monospace;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  color-scheme: dark;
+}
+html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--fg); }
+body {
+  font: clamp(15px, 0.55rem + 0.6vw, 22px)/1.5 var(--mono);
+  padding: clamp(14px, 2.4vw, 40px); box-sizing: border-box; min-height: 100vh;
+  background: radial-gradient(ellipse at top, #120d2e 0%, var(--bg) 70%) fixed;
+}
+body::after {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 9;
+  background: repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0 2px, rgba(0,0,0,.22) 2px 3px);
+}
+main { max-width: 52em; margin: 0 auto; }
+.pixel { font-family: var(--pixel); font-weight: normal; }
+[hidden] { display: none !important; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+         gap: .4em 1em; font-family: var(--pixel); font-size: .7em; color: var(--muted); }
+header b { color: var(--cyan); font-weight: normal; }
+header a, #status a, a { color: var(--cyan); }
+#status { font-family: var(--pixel); font-size: .6em; color: var(--muted); min-height: 1.6em; margin: .6em 0 0; }
+#status.down { color: var(--pink); }
+
+/* done missions: a strip of small chips */
+#done { display: flex; flex-wrap: wrap; align-items: center; gap: .45em; margin: 1em 0 0; }
+.chip { font-family: var(--pixel); font-size: .55em; padding: .55em .7em; color: #04030b;
+        background: var(--green); box-shadow: 0 0 .5em var(--green); }
+#score { font-family: var(--pixel); font-size: .6em; color: var(--gold); margin-left: auto; }
+
+/* the current mission fills the page */
+#mission { margin: 1.4em 0 0; padding: 1.2em 1.3em 1.4em; background: var(--panel);
+           border: 2px solid var(--line); border-left: 4px solid var(--cyan); }
+#mission.enter { animation: slide .6s ease-out; }
+@keyframes slide { from { opacity: 0; transform: translateX(2.5em); } to { opacity: 1; transform: none; } }
+#count { font-family: var(--pixel); font-size: .65em; color: var(--muted); letter-spacing: .08em; }
+#mid { font-family: var(--pixel); font-weight: normal; margin: .5em 0 .6em; color: var(--cyan);
+       font-size: clamp(22px, 1rem + 2.6vw, 52px); overflow-wrap: anywhere; line-height: 1.3;
+       text-shadow: 0 0 .3em var(--cyan), 0 0 .8em var(--violet); }
+#goal { font-size: 1.25em; margin: 0 0 .7em; color: #fff; }
+#hint { margin: 0 0 .9em; color: var(--fg); }
+#hint::before { content: "HINT "; font-family: var(--pixel); font-size: .6em; color: var(--pink); }
+#next { font-family: var(--pixel); font-size: .7em; color: var(--green); margin: 0 0 .4em; }
+#bench { font-family: var(--pixel); font-size: .7em; color: var(--gold); margin: 0 0 .4em; line-height: 1.6; }
+#promptBox { margin: 1.1em 0 0; }
+#promptBox .label { display: flex; justify-content: space-between; align-items: center;
+                    font-family: var(--pixel); font-size: .6em; color: var(--muted); margin-bottom: .5em; }
+#prompt { margin: 0; padding: .8em 1em; background: #07061a; border: 2px solid var(--line);
+          border-left-color: var(--gold); white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+button { font-family: var(--pixel); font-size: 1em; cursor: pointer; color: #04030b; background: var(--cyan);
+         border: 0; padding: .7em 1em; box-shadow: 0 0 .5em var(--cyan); }
+button:active { transform: translateY(1px); }
+#copy.ok { background: var(--green); box-shadow: 0 0 .5em var(--green); }
+
+/* the name form, the finish screen */
+.screen { margin: 2em auto 0; padding: 1.4em; max-width: 30em; text-align: center; background: var(--panel);
+          border: 2px solid var(--line); border-top: 4px solid var(--pink); }
+.screen h1 { font-family: var(--pixel); font-weight: normal; font-size: 1.1em; color: var(--pink);
+             text-shadow: 0 0 .4em var(--pink); line-height: 1.5; margin: 0 0 1em; }
+#ask input { font: inherit; font-size: 1.3em; width: 100%; box-sizing: border-box; padding: .4em .5em;
+             background: #07061a; color: #fff; border: 2px solid var(--cyan); text-align: center; }
+#ask p { color: var(--muted); }
+#askErr { color: var(--pink); min-height: 1.5em; font-size: .85em; }
+#ask button { font-size: .75em; margin-top: .4em; }
+#finish .big { font-family: var(--pixel); font-size: 1.6em; color: var(--gold); text-shadow: 0 0 .4em var(--gold); margin: .3em 0; }
+#finish p { margin: .8em 0; }
+
+/* the celebration */
+#party { position: fixed; inset: 0; z-index: 5; display: flex; flex-direction: column; align-items: center;
+         justify-content: center; gap: .5em; text-align: center; padding: 1em;
+         background: radial-gradient(circle, rgba(46,242,255,.16) 0%, transparent 60%), rgba(4,3,11,.97); }
+#party .what { font-family: var(--pixel); font-size: .8em; color: var(--muted); }
+#party .ms { font-family: var(--pixel); color: var(--cyan); font-size: clamp(26px, 1rem + 4.5vw, 84px);
+             text-shadow: 0 0 .3em var(--cyan), 0 0 .8em var(--violet); overflow-wrap: anywhere; }
+#party .pl { font-family: var(--pixel); color: var(--gold); font-size: clamp(22px, 1rem + 3vw, 60px);
+             text-shadow: 0 0 .4em var(--gold); }
+#party.on { animation: pop .45s cubic-bezier(.2,1.6,.4,1); }
+@keyframes pop { from { opacity: 0; transform: scale(.6); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { #mission.enter, #party.on { animation: none; } }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <span>SPACE TAXI · MISSION</span>
+  <span id="who" hidden><b id="whoName"></b> · <a href="#" id="rename">change name</a></span>
+</header>
+<p id="status"></p>
+
+<form id="ask" class="screen" hidden>
+  <h1>WHO IS FLYING?</h1>
+  <input id="askName" maxlength="12" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="first name">
+  <p>The same name your bot connects with. 1-12 letters, digits, <code>_</code> or <code>-</code>.</p>
+  <div id="askErr"></div>
+  <button type="submit">GO</button>
+</form>
+
+<section id="view" hidden>
+  <div id="done"></div>
+  <article id="mission">
+    <div id="count"></div>
+    <h1 id="mid"></h1>
+    <p id="goal"></p>
+    <p id="hint"></p>
+    <p id="next"></p>
+    <p id="bench" hidden></p>
+    <div id="promptBox" hidden>
+      <div class="label"><span>PROMPT FOR YOUR AGENT</span><button id="copy" type="button">COPY</button></div>
+      <pre id="prompt"></pre>
+    </div>
+  </article>
+</section>
+
+<section id="finish" class="screen" hidden>
+  <h1>ALL NINE DONE</h1>
+  <div class="big" id="finPts"></div>
+  <div class="big" id="finRank"></div>
+  <p>Every milestone reached. Now watch the others race: <a href="/watch">/watch</a></p>
+</section>
+</main>
+
+<div id="party" hidden>
+  <div class="what">MILESTONE REACHED</div>
+  <div class="ms" id="partyMs"></div>
+  <div class="pl" id="partyPl"></div>
+</div>
+
+<script>
+"use strict";
+// The missions of docs/missions.md, in the order of docs/rules.md, with the server address in.
+const MISSIONS = /*MISSIONS*/;
+const NAME_RE = /^[A-Za-z0-9_-]{1,12}$/;
+const KEY = "spacetaxi.name";
+const PARTY_MS = 3000, PARTY_QUICK_MS = 1500;
+const $ = id => document.getElementById(id);
+
+const st = {
+  name: null,
+  data: null,        // the last /standings.json
+  shown: null,       // milestones the page treats as done (null until the first poll for the name)
+  queue: [],         // awards still to celebrate: {milestone, place, points}
+  partying: false,   // the milestone being celebrated
+  slide: false,      // render after a celebration: slide the next mission in
+  batch: false,      // celebrating several awards that came at once
+  current: null,     // the mission shown
+};
+window.spacetaxi = { mission: null, celebrated: [], celebrating: null, polls: 0, finished: false };
+
+function load() { try { return localStorage.getItem(KEY); } catch (e) { return null; } }
+function save(name) { try { localStorage.setItem(KEY, name); } catch (e) { /* works without */ } }
+
+function setName(name) {
+  st.name = name;
+  st.shown = null;
+  st.queue = [];
+  st.current = null;
+  $("ask").hidden = true;
+  $("who").hidden = false;
+  $("whoName").textContent = name;
+  render();
+  pollNow();
+}
+
+function askName() {
+  $("ask").hidden = false;
+  $("view").hidden = true;
+  $("finish").hidden = true;
+  $("who").hidden = true;
+  $("askName").value = st.name || "";
+  $("askErr").textContent = "";
+  $("askName").focus();
+}
+
+$("ask").addEventListener("submit", e => {
+  e.preventDefault();
+  const name = $("askName").value.trim();
+  if (!NAME_RE.test(name)) {
+    $("askErr").textContent = "1-12 of A-Z a-z 0-9 _ - only, no spaces.";
+    return;
+  }
+  save(name);
+  setName(name);
+});
+$("rename").addEventListener("click", e => { e.preventDefault(); askName(); });
+
+function row() {
+  const d = st.data;
+  return d && d.standings.find(r => r.name === st.name) || null;
+}
+
+function promptText(m) {
+  return m.prompt.replace(/NAME/g, st.name);
+}
+
+function render() {
+  if (!st.name) return;
+  if (st.shown === null) {   // not polled yet for this name: nothing to show
+    $("view").hidden = $("finish").hidden = true;
+    return;
+  }
+  const shown = st.shown;
+  const r = row();
+  const got = r ? r.milestones : {};
+  const index = MISSIONS.findIndex(m => !shown.has(m.id));
+  const total = r ? r.points : 0;
+  const rankText = r ? `RANK ${r.rank}` : "NO RANK YET";
+
+  if (index < 0) {
+    $("view").hidden = true;
+    $("finish").hidden = false;
+    $("finPts").textContent = `${total} PTS`;
+    $("finRank").textContent = rankText;
+    window.spacetaxi.mission = null;
+    window.spacetaxi.finished = true;
+    return;
+  }
+  window.spacetaxi.finished = false;
+  $("finish").hidden = true;
+  $("view").hidden = false;
+
+  $("done").replaceChildren(...MISSIONS.filter(m => shown.has(m.id) && got[m.id]).map(m => {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    chip.textContent = `${m.id} P${got[m.id].place} +${got[m.id].points}`;
+    return chip;
+  }));
+  const score = document.createElement("span");
+  score.id = "score";
+  score.textContent = `${total} PTS · ${rankText}`;
+  $("done").appendChild(score);
+
+  const m = MISSIONS[index];
+  if (st.current !== m.id) {
+    const card = $("mission");
+    card.classList.remove("enter");
+    if (st.slide) { void card.offsetWidth; card.classList.add("enter"); }
+    st.current = m.id;
+    $("copy").textContent = "COPY";
+    $("copy").classList.remove("ok");
+  }
+  window.spacetaxi.mission = m.id;
+  $("count").textContent = `MISSION ${index + 1} OF ${MISSIONS.length}`;
+  $("mid").textContent = m.id;
+  $("goal").textContent = m.goal;
+  $("hint").textContent = m.hint;
+
+  const d = st.data;
+  if (d) {
+    const n = d.reached[m.id] || 0;
+    const pts = n < d.points.length ? d.points[n] : 0;
+    $("next").textContent = `+${pts} IF YOU ARE NEXT` + (n ? ` · ${n} HAVE IT` : " · NOBODY HAS IT YET");
+  } else {
+    $("next").textContent = "";
+  }
+  const bot = m.id.startsWith("beat_") ? m.id.slice(5) : null;
+  $("bench").hidden = !bot;
+  if (bot) {
+    const v = d && d.benchmarks ? d.benchmarks[bot] : null;
+    $("bench").textContent = v === null || v === undefined
+      ? `${bot.toUpperCase()}'S BENCHMARK: STILL BEING SIMULATED ...`
+      : `TO BEAT: $${v}, ${bot.toUpperCase()}'S BEST ROUND`;
+  }
+  $("promptBox").hidden = !m.prompt;
+  if (m.prompt) $("prompt").textContent = promptText(m);
+}
+
+function update(data) {
+  st.data = data;
+  const r = row();
+  const got = r ? r.milestones : {};
+  if (st.shown === null) {
+    st.shown = new Set(Object.keys(got));   // page load: what is done is done, no party
+  } else {
+    const queued = new Set(st.queue.map(a => a.milestone));
+    for (const m of MISSIONS) {
+      if (got[m.id] && !st.shown.has(m.id) && !queued.has(m.id) && st.partying !== m.id) {
+        st.queue.push({ milestone: m.id, place: got[m.id].place, points: got[m.id].points });
+      }
+    }
+  }
+  render();
+  party();
+}
+
+function party() {
+  if (st.partying || !st.queue.length) return;
+  const a = st.queue.shift();
+  st.partying = a.milestone;
+  window.spacetaxi.celebrating = a.milestone;
+  window.spacetaxi.celebrated.push(`${a.milestone} P${a.place} +${a.points}`);
+  $("partyMs").textContent = a.milestone.toUpperCase().replace(/_/g, " ");
+  $("partyPl").textContent = `P${a.place} · +${a.points}`;
+  const el = $("party");
+  el.hidden = false;
+  el.classList.remove("on");
+  void el.offsetWidth;
+  el.classList.add("on");
+  const quick = st.queue.length > 0 || st.batch;   // several at once: one after the other, quickly
+  st.batch = st.queue.length > 0;
+  setTimeout(() => {
+    const name = st.name;
+    st.partying = false;
+    window.spacetaxi.celebrating = null;
+    if (name === st.name && st.shown) st.shown.add(a.milestone);
+    if (!st.queue.length) el.hidden = true;
+    st.slide = true;   // the next mission slides in
+    render();
+    st.slide = false;
+    party();
+  }, quick ? PARTY_QUICK_MS : PARTY_MS);
+}
+
+$("copy").addEventListener("click", async () => {
+  const text = $("prompt").textContent;
+  let ok = false;
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      ok = true;
+    }
+  } catch (e) { /* fall back below */ }
+  if (!ok) {   // plain http on a LAN address: no Clipboard API
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    ta.remove();
+  }
+  if (!ok) {   // select the prompt so a long press or Ctrl-C copies it
+    const range = document.createRange();
+    range.selectNodeContents($("prompt"));
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+  $("copy").textContent = ok ? "COPIED" : "SELECTED";
+  $("copy").classList.toggle("ok", ok);
+});
+
+let timer = null, inflight = false;
+async function poll() {
+  if (inflight) return;
+  if (timer !== null) clearTimeout(timer);
+  timer = null;
+  inflight = true;
+  if (st.name) {
+    try {
+      const res = await fetch("/standings.json", { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      $("status").textContent = "";
+      $("status").className = "";
+      window.spacetaxi.polls += 1;
+      update(data);
+    } catch (err) {
+      $("status").textContent = "SERVER UNREACHABLE, RETRYING ...";
+      $("status").className = "down";
+    }
+  }
+  inflight = false;
+  timer = setTimeout(poll, 2000);
+}
+const pollNow = poll;
+
+const stored = load();
+if (stored && NAME_RE.test(stored)) setName(stored);
+else { askName(); poll(); }
+</script>
+</body>
+</html>

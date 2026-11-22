@@ -25,6 +25,7 @@ packages = ["src/spacetaxi"]
 [tool.hatch.build.targets.wheel.force-include]
 "docs/brief.md" = "spacetaxi/docs/brief.md"
 "docs/participant-card.md" = "spacetaxi/docs/participant-card.md"
+"docs/missions.md" = "spacetaxi/docs/missions.md"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -130,3 +130,30 @@ def test_the_address_given_wins_over_the_bound_one():
     server.address = "10.0.0.7:8000"
     card = server.http("/card")[2].decode("utf-8")
     assert "ws://10.0.0.7:8000/bot" in card and "HOST:PORT" not in card
+
+
+def test_missions_follow_the_rules_and_only_the_first_three_have_a_prompt():
+    from spacetaxi.viewer import parse_missions
+    missions = parse_missions((DOCS / "missions.md").read_text(encoding="utf-8"))
+    assert [m["id"] for m in missions] == rules_milestones() == list(MILESTONES)
+    assert [m["id"] for m in missions if m["prompt"]] == ["hello", "liftoff", "touchdown"]
+    for m in missions:
+        assert m["goal"] and m["hint"] and "\n" not in m["goal"] + m["hint"]
+    assert "NAME" in missions[0]["prompt"] and "ws://HOST:PORT/bot" in missions[0]["prompt"]
+
+
+def test_server_serves_the_mission_page_with_its_address():
+    server = ArenaServer(load_map("cavern"), Rules(), 60, seed=1)
+    server.address = "10.0.0.7:8000"
+    status, kind, body = server.http("/mission")
+    page = body.decode("utf-8")
+    assert status == 200 and kind.startswith("text/html")
+    assert "HOST:PORT" not in page and "ws://10.0.0.7:8000/bot" in page
+    assert "http://10.0.0.7:8000/brief.md" in page
+    for m in MILESTONES:
+        assert f'"id":"{m}"' in page
+    assert "/*MISSIONS*/" not in page and "/*FONT*/" not in page
+    card = server.http("/card")[2].decode("utf-8")
+    assert 'href="/mission"' in card and "http://10.0.0.7:8000/mission" in card
+    assert card.index("/mission") < card.index("<h2>")
+    assert 'href="/mission"' in server.http("/standings")[2].decode("utf-8")
