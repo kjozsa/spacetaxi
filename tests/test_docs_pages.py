@@ -11,6 +11,7 @@ from spacetaxi.markdown import render
 from spacetaxi.milestones import MILESTONES
 from spacetaxi.server import ArenaServer
 from spacetaxi.sim import Rules
+from spacetaxi.viewer import parse_missions
 
 DOCS = Path(__file__).resolve().parent.parent / "docs"
 
@@ -133,7 +134,6 @@ def test_the_address_given_wins_over_the_bound_one():
 
 
 def test_missions_follow_the_rules_and_only_the_first_three_have_a_prompt():
-    from spacetaxi.viewer import parse_missions
     missions = parse_missions((DOCS / "missions.md").read_text(encoding="utf-8"))
     assert [m["id"] for m in missions] == rules_milestones() == list(MILESTONES)
     assert [m["id"] for m in missions if m["prompt"]] == ["hello", "liftoff", "touchdown"]

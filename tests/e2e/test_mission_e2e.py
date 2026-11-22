@@ -217,3 +217,31 @@ def test_mission_page_survives_the_server_going_away(browser, arena):
     page.wait_for_function("document.getElementById('status').textContent === ''", timeout=5000)
     assert page.locator("#whoName").inner_text() == "Anna"
     context.close()
+
+
+def test_mission_page_rename_during_a_celebration_keeps_the_award_off_the_new_name(browser, arena):
+    base, award = arena
+    context = browser.new_context(viewport={"width": 390, "height": 844})
+    page = context.new_page()
+    page.goto(base + "/mission")
+    page.fill("#askName", "Anna")
+    page.click("#ask button")
+    page.wait_for_function("window.spacetaxi.mission === 'liftoff'", timeout=5000)
+    award(("liftoff", "Anna"))
+    award(("hello", "Cleo"))
+    page.wait_for_function("window.spacetaxi.celebrating === 'liftoff'", timeout=5000)
+    # the overlay covers the page, so rename from script while the party is still up
+    page.evaluate("""() => {
+        document.getElementById('rename').click();
+        document.getElementById('askName').value = 'Cleo';
+        document.getElementById('ask').requestSubmit();
+    }""")
+    page.wait_for_function("window.spacetaxi.celebrating === 'liftoff' && "
+                           "document.getElementById('whoName').textContent === 'Cleo' && "
+                           "window.spacetaxi.mission === 'liftoff'", timeout=2000)
+    page.wait_for_function("!window.spacetaxi.celebrating", timeout=5000)
+    page.wait_for_timeout(300)
+    assert page.evaluate("window.spacetaxi.celebrated") == ["liftoff P2 +18"]
+    assert page.evaluate("window.spacetaxi.mission") == "liftoff"
+    assert page.locator("#done .chip").all_inner_texts()[0].startswith("hello P")
+    context.close()

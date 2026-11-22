@@ -39,8 +39,8 @@ and sent to spectators as `milestone`. `/standings` is the projector page of the
 `/standings.json` its data. `/card` is the participant card and `/brief` the agent brief
 (`docs/participant-card.md`, `docs/brief.md`, rendered, with `address` filled in for HOST:PORT;
 `/brief.md` is the raw Markdown). `/mission` is each participant's own page: their next
-milestone only, from `docs/missions.md`, polling `/standings.json`. The house bots' benchmarks are simulated in a thread at start,
-unless `benchmarks` gives them.
+milestone only, from `docs/missions.md`, polling `/standings.json`. The house bots' benchmarks
+are simulated in a thread at start, unless `benchmarks` gives them.
 """
 
 import asyncio
@@ -357,6 +357,10 @@ class ArenaServer:
 
     # --- HTTP
 
+    def doc(self, name: str) -> str:
+        """A file of `docs/` with the server's address filled in for HOST:PORT."""
+        return doc_text(name).replace("HOST:PORT", self.address or "HOST:PORT")
+
     def http(self, path: str):
         if path in ("/", "/index.html"):
             return 200, "text/html; charset=utf-8", (WEB_DIR / "leaderboard.html").read_bytes()
@@ -377,11 +381,11 @@ class ArenaServer:
                     "reached": {m: self.standings.reached(m) for m in MILESTONES}}
             return 200, "application/json", json.dumps(data).encode("utf-8")
         if path == "/mission":
-            text = doc_text("missions.md").replace("HOST:PORT", self.address or "HOST:PORT")
+            text = self.doc("missions.md")
             return 200, "text/html; charset=utf-8", build_mission_html(text).encode("utf-8")
         if path in DOC_PAGES:
             name, title = DOC_PAGES[path]
-            text = doc_text(name).replace("HOST:PORT", self.address or "HOST:PORT")
+            text = self.doc(name)
             if path.endswith(".md"):
                 return 200, "text/markdown; charset=utf-8", text.encode("utf-8")
             return 200, "text/html; charset=utf-8", build_doc_html(text, title).encode("utf-8")

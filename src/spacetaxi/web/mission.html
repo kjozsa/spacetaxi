@@ -30,12 +30,11 @@ body::after {
   background: repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0 2px, rgba(0,0,0,.22) 2px 3px);
 }
 main { max-width: 52em; margin: 0 auto; }
-.pixel { font-family: var(--pixel); font-weight: normal; }
 [hidden] { display: none !important; }
 header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
          gap: .4em 1em; font-family: var(--pixel); font-size: .7em; color: var(--muted); }
 header b { color: var(--cyan); font-weight: normal; }
-header a, #status a, a { color: var(--cyan); }
+a { color: var(--cyan); }
 #status { font-family: var(--pixel); font-size: .6em; color: var(--muted); min-height: 1.6em; margin: .6em 0 0; }
 #status.down { color: var(--pink); }
 
@@ -174,8 +173,7 @@ function setName(name) {
   $("ask").hidden = true;
   $("who").hidden = false;
   $("whoName").textContent = name;
-  render();
-  pollNow();
+  poll();
 }
 
 function askName() {
@@ -201,8 +199,7 @@ $("ask").addEventListener("submit", e => {
 $("rename").addEventListener("click", e => { e.preventDefault(); askName(); });
 
 function row() {
-  const d = st.data;
-  return d && d.standings.find(r => r.name === st.name) || null;
+  return st.data.standings.find(r => r.name === st.name) || null;
 }
 
 function promptText(m) {
@@ -210,8 +207,7 @@ function promptText(m) {
 }
 
 function render() {
-  if (!st.name) return;
-  if (st.shown === null) {   // not polled yet for this name: nothing to show
+  if (st.shown === null) {   // renamed, not polled yet for the new name: nothing to show
     $("view").hidden = $("finish").hidden = true;
     return;
   }
@@ -262,18 +258,14 @@ function render() {
   $("hint").textContent = m.hint;
 
   const d = st.data;
-  if (d) {
-    const n = d.reached[m.id] || 0;
-    const pts = n < d.points.length ? d.points[n] : 0;
-    $("next").textContent = `+${pts} IF YOU ARE NEXT` + (n ? ` · ${n} HAVE IT` : " · NOBODY HAS IT YET");
-  } else {
-    $("next").textContent = "";
-  }
+  const n = d.reached[m.id] || 0;
+  const pts = n < d.points.length ? d.points[n] : 0;
+  $("next").textContent = `+${pts} IF YOU ARE NEXT` + (n ? ` · ${n} HAVE IT` : " · NOBODY HAS IT YET");
   const bot = m.id.startsWith("beat_") ? m.id.slice(5) : null;
   $("bench").hidden = !bot;
   if (bot) {
-    const v = d && d.benchmarks ? d.benchmarks[bot] : null;
-    $("bench").textContent = v === null || v === undefined
+    const v = d.benchmarks[bot];
+    $("bench").textContent = v === null
       ? `${bot.toUpperCase()}'S BENCHMARK: STILL BEING SIMULATED ...`
       : `TO BEAT: $${v}, ${bot.toUpperCase()}'S BEST ROUND`;
   }
@@ -302,6 +294,7 @@ function update(data) {
 function party() {
   if (st.partying || !st.queue.length) return;
   const a = st.queue.shift();
+  const name = st.name;   // a rename during the party drops this award from the page
   st.partying = a.milestone;
   window.spacetaxi.celebrating = a.milestone;
   window.spacetaxi.celebrated.push(`${a.milestone} P${a.place} +${a.points}`);
@@ -315,7 +308,6 @@ function party() {
   const quick = st.queue.length > 0 || st.batch;   // several at once: one after the other, quickly
   st.batch = st.queue.length > 0;
   setTimeout(() => {
-    const name = st.name;
     st.partying = false;
     window.spacetaxi.celebrating = null;
     if (name === st.name && st.shown) st.shown.add(a.milestone);
@@ -364,28 +356,25 @@ async function poll() {
   if (timer !== null) clearTimeout(timer);
   timer = null;
   inflight = true;
-  if (st.name) {
-    try {
-      const res = await fetch("/standings.json", { cache: "no-store" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      $("status").textContent = "";
-      $("status").className = "";
-      window.spacetaxi.polls += 1;
-      update(data);
-    } catch (err) {
-      $("status").textContent = "SERVER UNREACHABLE, RETRYING ...";
-      $("status").className = "down";
-    }
+  try {
+    const res = await fetch("/standings.json", { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    $("status").textContent = "";
+    $("status").className = "";
+    window.spacetaxi.polls += 1;
+    update(data);
+  } catch (err) {
+    $("status").textContent = "SERVER UNREACHABLE, RETRYING ...";
+    $("status").className = "down";
   }
   inflight = false;
   timer = setTimeout(poll, 2000);
 }
-const pollNow = poll;
 
 const stored = load();
 if (stored && NAME_RE.test(stored)) setName(stored);
-else { askName(); poll(); }
+else askName();
 </script>
 </body>
 </html>
