@@ -20,7 +20,7 @@ RULES = Rules(tick_ms=50, deadline_ms=30, round_ticks=20)
 
 
 def make_server(fill_seconds=0.3, **kw) -> ArenaServer:
-    return ArenaServer(load_map("cavern"), RULES, fill_seconds, seed=1, **kw)
+    return ArenaServer({"cavern": load_map("cavern")}, RULES, fill_seconds, seed=1, **kw)
 
 
 async def start(server: ArenaServer) -> tuple[asyncio.Server, int]:
@@ -117,7 +117,7 @@ def test_six_bots_six_waves_every_pair_meets_and_no_group_repeats():
         await sock.close()
 
     async def main():
-        server = ArenaServer(load_map("cavern"), rules, 0.05, seed=1, say=lines.append)
+        server = ArenaServer({"cavern": load_map("cavern")}, rules, 0.05, seed=1, say=lines.append)
         srv, port = await start(server)
         names = ["pia", "gus", "rnd", "gina", "greg", "ace"]
         await asyncio.gather(*(bot(port, n, 6) for n in names))

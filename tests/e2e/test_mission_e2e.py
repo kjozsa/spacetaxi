@@ -24,8 +24,8 @@ def arena(serve_arena, tmp_path):
               "Full": {m: {"place": 1, "points": 25} for m in MILESTONES}}
     path = tmp_path / "standings.json"
     path.write_text(json.dumps({"awards": awards}), encoding="utf-8")
-    server = ArenaServer(load_map("cavern"), Rules(), 600, seed=1, standings=path,
-                         benchmarks={"greedy": 300, "pilot": 450})
+    server = ArenaServer({"cavern": load_map("cavern")}, Rules(), 600, seed=1, standings=path,
+                         benchmarks={"cavern": {"greedy": 300, "pilot": 450}})
     base, server, loop = serve_arena(server)
 
     def award(*pairs: tuple[str, str]) -> None:

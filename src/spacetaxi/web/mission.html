@@ -274,7 +274,8 @@ function render() {
     const v = d.benchmarks[bot];
     $("bench").textContent = v === null
       ? `${bot.toUpperCase()}'S BENCHMARK: STILL BEING SIMULATED ...`
-      : `TO BEAT: $${v}, ${bot.toUpperCase()}'S BEST ROUND`;
+      : `TO BEAT: $${v}, ${bot.toUpperCase()}'S BEST ROUND`
+        + ` ON ${d.map_name.toUpperCase()}`;
   }
   $("promptBox").hidden = !m.prompt;
   if (m.prompt) $("prompt").textContent = m.prompt.replace(/NAME/g, name);

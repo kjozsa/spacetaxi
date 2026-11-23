@@ -215,8 +215,10 @@ object, sent as one text frame. The bot's first message is `hello`; the server a
 `welcome`, then `queued` while the bot waits for a round. Rounds run in waves: every arena of a
 wave starts on the same tick clock, and the next wave starts a pause after all of them end. At
 the start of a wave the waiting bots are dealt into arenas of at most 4, as even as possible, and
-groups are reshuffled every wave; a bot that joins mid-wave plays from the next wave. When the server sends an `error`, it
-closes the socket right after it.
+groups are reshuffled every wave; a bot that joins mid-wave plays from the next wave. Every
+arena of a wave plays the same map, but the map can change between waves (the operator switches
+it on a running server), so read the map from every `round_start`. When the server sends an
+`error`, it closes the socket right after it.
 
 Spectators (the live viewer at `http://HOST:PORT/watch`) connect to `ws://HOST:PORT/spectate`
 and send nothing. The server first sends `{"type": "spectate", "arenas": 3}` (how many arenas
@@ -260,14 +262,16 @@ once, however often it reaches it again.
   next name is 4th. For milestones 6 to 9, all reached at the same `round_end`, higher round
   money places first, and names with equal money tie.
 - **Rounds of one.** Milestones 6 to 9 count only in rounds with at least 2 taxis.
-- **Benchmarks.** At start the server simulates 20 seeded rounds on the served map with the
+- **Benchmarks.** At start the server simulates 20 seeded rounds on each served map with the
   served rules: `greedy` against 3 greedy copies and `pilot` against 3 greedy copies. Each
-  bot's best money in one of those rounds (at least 1) is its benchmark, so beating it means
-  clearly better than that bot. The simulation runs in
+  bot's best money in one of those rounds (at least 1) is its benchmark on that map, so beating
+  it means clearly better than that bot. A round compares against the benchmarks of its own
+  map; milestones already won stay when the map changes. The simulation runs in
   the background: until a benchmark is known, its milestone is not awarded, and a round counts
   it only when the benchmark was known at the round's start. `spacetaxi serve --benchmark
-  greedy=N --benchmark pilot=N` gives them instead. The server prints the values in use and the
-  standings page shows them.
+  greedy=N --benchmark pilot=N` gives them instead (for the first map; `canyon:greedy=N` for
+  another). The server prints the values in use and the standings page shows those of the
+  current wave's map.
 - **Humans** (`"client": "human"` in `hello`) never score and have no standings row.
 - **House bots** named with `spacetaxi serve --house NAME` (ignoring case) never score either and have no
   standings row, so places go to the participants as if the house bots were not in the race;
@@ -331,13 +335,15 @@ estimated number of whole seconds until the bot's round starts (an integer, `0` 
 
 ### `round_start`
 
-Carries the map rows, the pads, the spawn cells, the players and the rules in effect for the
-round (every constant above, same shape as in `welcome`).
+Carries the map's name (`map_name`), its rows, the pads, the spawn cells, the players and the
+rules in effect for the round (every constant above, same shape as in `welcome`). The map can
+differ from the previous round's: the server can switch it between waves.
 
 ```json
 {
   "type": "round_start",
   "round": 1,
+  "map_name": "classic",
   "map": [
     "####################",
     "#..................#",

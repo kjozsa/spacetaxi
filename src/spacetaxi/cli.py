@@ -5,6 +5,7 @@ import argparse
 import asyncio
 import json
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -103,7 +104,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     serve_cmd = commands.add_parser(
         "serve", help="the arena: bots connect over WebSocket and fly live rounds of up to 4")
-    serve_cmd.add_argument("--map", default="cavern", help="bundled map name or map file path")
+    serve_cmd.add_argument(
+        "--map", action="append", default=[], metavar="MAP",
+        help="bundled map name or map file path (repeatable: the maps `map NAME` typed in the "
+             "terminal switches the next wave to; the first starts; default cavern)")
     serve_cmd.add_argument("--port", type=int, default=8000,
                            help="port to serve on (default 8000)")
     serve_cmd.add_argument(
@@ -125,9 +129,10 @@ def build_parser() -> argparse.ArgumentParser:
                            help="keep the milestone race's standings in this JSON file: saved "
                                 "after every award, loaded on restart")
     serve_cmd.add_argument(
-        "--benchmark", action="append", default=[], metavar="BOT=MONEY",
-        help="the money beat_greedy / beat_pilot must beat, e.g. greedy=300 (repeatable; "
-             "default: the bot's best round money in 20 rounds simulated on the map at start)")
+        "--benchmark", action="append", default=[], metavar="[MAP:]BOT=MONEY",
+        help="the money beat_greedy / beat_pilot must beat, e.g. greedy=300 for the first map "
+             "or canyon:greedy=300 (repeatable; default: the bot's best round money in 20 "
+             "rounds simulated on each map at start)")
     serve_cmd.add_argument(
         "--house", action="append", default=[], metavar="NAME",
         help="a house bot's name: it plays, but never scores milestones and has no standings "
@@ -361,9 +366,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
         rules = parse_rules(args.rule)
         if rules.tick_ms < 1 or rules.deadline_ms < 1 or rules.round_ticks < 1:
             raise RuleError("tick_ms, deadline_ms and round_ticks must be positive")
-        benchmarks = parse_benchmarks(args.benchmark)
-        game_map = load_map(args.map)
-        arena = ArenaServer(game_map, rules, args.fill_seconds, log=args.log,
+        maps = load_maps(args.map or ["cavern"])
+        benchmarks = parse_benchmarks(args.benchmark, list(maps))
+        arena = ArenaServer(maps, rules, args.fill_seconds, log=args.log,
                             replays=args.replays, seed=args.seed,
                             say=lambda text: print(text, flush=True),
                             standings=args.standings, benchmarks=benchmarks,
@@ -376,7 +381,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
         hosts = lan_addresses() or ["localhost"]
         arena.address = f"{hosts[0]}:{args.port}"  # the address the card and brief give out
         server = await arena.start(None, args.port)
-        print(f"arena on {args.map}: tick_ms={rules.tick_ms} deadline_ms={rules.deadline_ms} "
+        names = list(maps)
+        print(f"arena on {names[0]}" + (f" (maps: {', '.join(names)})" if len(names) > 1 else "")
+              + f": tick_ms={rules.tick_ms} deadline_ms={rules.deadline_ms} "
               f"round_ticks={rules.round_ticks}, waves every {args.fill_seconds:g} s after the last")
         for host in hosts:
             print(f"  leaderboard http://{host}:{args.port}/   bots ws://{host}:{args.port}/bot   "
@@ -386,7 +393,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
                   f"mission http://{host}:{args.port}/mission")
         if args.house:
             print(f"house bots (never score): {', '.join(args.house)}")
-        print("Ctrl-C stops", flush=True)
+        reading = read_commands(arena)
+        print("type `map NAME` + Enter to switch the next wave's map, `maps` to list them; "
+              "Ctrl-C stops" if reading else "Ctrl-C stops", flush=True)
         async with server:
             await server.serve_forever()
 
@@ -400,21 +409,62 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
-def parse_benchmarks(items: list[str]) -> dict[str, int]:
-    """`--benchmark BOT=MONEY` values as a dict; BOT is one of the house benchmarks."""
+def load_maps(args: list[str]) -> dict:
+    """Every `--map` loaded, in the order given, by name: a bundled map's name, a file's name
+    without .txt."""
+    maps = {}
+    for arg in args:
+        name = Path(arg).stem
+        if name in maps:
+            raise RuleError(f"--map {arg!r}: a map named {name!r} is already given")
+        maps[name] = load_map(arg)
+    return maps
+
+
+def parse_benchmarks(items: list[str], maps: list[str]) -> dict[str, dict[str, int]]:
+    """`--benchmark [MAP:]BOT=MONEY` values as `{map: {bot: money}}`; BOT is one of the house
+    benchmarks, MAP one of `maps` (the first when not given)."""
     from spacetaxi.milestones import BENCHMARK_BOTS
 
-    out = {}
+    out: dict[str, dict[str, int]] = {}
     for item in items:
-        bot, sep, money = item.partition("=")
+        key, sep, money = item.partition("=")
+        where, colon, bot = key.rpartition(":")
         if not sep or bot not in BENCHMARK_BOTS:
-            raise RuleError(f"--benchmark {item!r}: expected BOT=MONEY, BOT one of "
+            raise RuleError(f"--benchmark {item!r}: expected [MAP:]BOT=MONEY, BOT one of "
                             + ", ".join(BENCHMARK_BOTS))
+        if not colon:
+            where = maps[0]
+        elif where not in maps:
+            raise RuleError(f"--benchmark {item!r}: no map {where!r}; maps: " + ", ".join(maps))
         try:
-            out[bot] = int(money)
+            out.setdefault(where, {})[bot] = int(money)
         except ValueError:
             raise RuleError(f"--benchmark {item!r}: MONEY must be an integer") from None
     return out
+
+
+def read_commands(arena) -> bool:
+    """Read the operator's commands (`map NAME`, `maps`) from stdin in a daemon thread, each
+    answered on stdout; only when stdin is a terminal. Returns whether it reads."""
+    try:
+        if not sys.stdin or not sys.stdin.isatty():
+            return False
+    except ValueError:  # stdin is closed
+        return False
+    loop = asyncio.get_running_loop()
+
+    def run_command(line: str) -> None:
+        answer = arena.command(line)
+        if answer:
+            print(answer, flush=True)
+
+    def reader() -> None:
+        for line in sys.stdin:
+            loop.call_soon_threadsafe(run_command, line)
+
+    threading.Thread(target=reader, daemon=True, name="commands").start()
+    return True
 
 
 def cmd_connect(args: argparse.Namespace) -> int:

@@ -20,6 +20,7 @@ from spacetaxi.sim import Rules
 
 RULES = Rules(tick_ms=50, deadline_ms=30, round_ticks=20)
 GIVEN = {"greedy": 300, "pilot": 450}
+CAVERN = {"cavern": load_map("cavern")}
 
 
 # --- detection
@@ -214,8 +215,8 @@ def test_benchmark_override_is_used_and_shown():
     lines = []
 
     async def main_():
-        server = ArenaServer(load_map("cavern"), RULES, 0.3, seed=1, say=lines.append,
-                             benchmarks=GIVEN)
+        server = ArenaServer(CAVERN, RULES, 0.3, seed=1, say=lines.append,
+                             benchmarks={"cavern": GIVEN})
         srv, _ = await start(server)
         await asyncio.sleep(0.05)
         srv.close()
@@ -223,7 +224,7 @@ def test_benchmark_override_is_used_and_shown():
 
     server = asyncio.run(main_())
     assert server.benchmarks == GIVEN
-    assert "benchmarks (given): greedy=300 pilot=450" in lines
+    assert "benchmarks on cavern (given): greedy=300 pilot=450" in lines
     assert not any("simulating" in line for line in lines)
     data = json.loads(server.http("/standings.json")[2])
     assert data["benchmarks"] == GIVEN
@@ -233,8 +234,8 @@ def test_automatic_benchmarks_are_simulated_in_the_background():
     lines = []
 
     async def main_():
-        server = ArenaServer(load_map("cavern"), RULES, 0.3, seed=1, say=lines.append,
-                             benchmarks={"pilot": 450})
+        server = ArenaServer(CAVERN, RULES, 0.3, seed=1, say=lines.append,
+                             benchmarks={"cavern": {"pilot": 450}})
         srv, _ = await start(server)
         assert server.benchmarks["greedy"] is None  # the server is up before it is known
         for _ in range(200):
@@ -247,12 +248,12 @@ def test_automatic_benchmarks_are_simulated_in_the_background():
     server = asyncio.run(main_())
     assert type(server.benchmarks["greedy"]) is int and server.benchmarks["greedy"] > 0
     assert server.benchmarks["pilot"] == 450
-    assert any(line.startswith("benchmarks (simulated, best round of 20): greedy=") for line in lines)
+    assert any(line.startswith("benchmarks on cavern (simulated, best round of 20): greedy=") for line in lines)
 
 
 def test_beat_milestones_wait_for_the_round_after_the_benchmark():
     async def main_():
-        server = ArenaServer(load_map("cavern"), RULES, 0.3, seed=1)
+        server = ArenaServer(CAVERN, RULES, 0.3, seed=1)
         arena = Arena(server, 1, [], seed=1)  # started before the benchmarks are known
         server.benchmarks.update(GIVEN)
         later = Arena(server, 2, [], seed=1)
@@ -272,7 +273,7 @@ def test_serve_rejects_a_bad_benchmark(capsys):
 
 
 def test_same_tick_in_two_arenas_of_a_wave_ties():
-    server = ArenaServer(load_map("cavern"), RULES, 0.3, seed=1, benchmarks=GIVEN)
+    server = ArenaServer(CAVERN, RULES, 0.3, seed=1, benchmarks={"cavern": GIVEN})
     one, two = SimpleNamespace(wave=1, stepped=0), SimpleNamespace(wave=1, stepped=0)
     server.arenas = [one, two]
     server.pending.append((1, 7, "touchdown", "anna", 0))
@@ -330,8 +331,8 @@ def test_server_awards_hello_to_bots_not_humans_and_tells_spectators(tmp_path):
     lines = []
 
     async def main_():
-        server = ArenaServer(load_map("cavern"), RULES, 0.2, seed=1, say=lines.append,
-                             standings=path, benchmarks=GIVEN)
+        server = ArenaServer(CAVERN, RULES, 0.2, seed=1, say=lines.append,
+                             standings=path, benchmarks={"cavern": GIVEN})
         srv, port = await start(server)
         spec = await ws.connect(f"ws://127.0.0.1:{port}/spectate")
         assert (await recv(spec))["type"] == "spectate"
@@ -364,16 +365,16 @@ def test_server_awards_hello_to_bots_not_humans_and_tells_spectators(tmp_path):
     assert "* milestone hello: anna P1 +25" in lines
     assert sum("milestone hello: anna" in line for line in lines) == 1
     # a restart with the same file keeps the race
-    again = ArenaServer(load_map("cavern"), RULES, 0.2, seed=1, standings=path,
-                        benchmarks=GIVEN)
+    again = ArenaServer(CAVERN, RULES, 0.2, seed=1, standings=path,
+                        benchmarks={"cavern": GIVEN})
     assert again.standings.table() == server.standings.table()
     assert json.loads(path.read_text())["awards"]["anna"]["hello"] == {"place": 1, "points": 25}
 
 
 def test_round_end_milestones_not_awarded_in_a_one_taxi_round():
     async def main_():
-        server = ArenaServer(load_map("cavern"), RULES, 0.1, seed=1,
-                             benchmarks={"greedy": -10**6, "pilot": -10**6})
+        server = ArenaServer(CAVERN, RULES, 0.1, seed=1,
+                             benchmarks={"cavern": {"greedy": -10**6, "pilot": -10**6}})
         srv, port = await start(server)
         solo = await join(port, "solo")
         await play(solo)
@@ -388,8 +389,8 @@ def test_round_end_milestones_not_awarded_in_a_one_taxi_round():
 
 def test_round_end_milestones_awarded_with_two_taxis():
     async def main_():
-        server = ArenaServer(load_map("cavern"), RULES, 0.2, seed=1,
-                             benchmarks={"greedy": -10**6, "pilot": -10**6})
+        server = ArenaServer(CAVERN, RULES, 0.2, seed=1,
+                             benchmarks={"cavern": {"greedy": -10**6, "pilot": -10**6}})
         srv, port = await start(server)
         a, b = await join(port, "a"), await join(port, "b")
         [(_, end), _] = await asyncio.gather(play(a), play(b))
@@ -412,7 +413,7 @@ def test_round_end_milestones_awarded_with_two_taxis():
 
 
 def test_standings_page_renders_and_leaderboard_links_it():
-    server = ArenaServer(load_map("cavern"), RULES, 0.2, seed=1, benchmarks=GIVEN)
+    server = ArenaServer(CAVERN, RULES, 0.2, seed=1, benchmarks={"cavern": GIVEN})
     status, kind, body = server.http("/standings")
     assert status == 200 and kind.startswith("text/html")
     assert b"/standings.json" in body and b"/*FONT*/" not in body
@@ -434,7 +435,7 @@ def test_serve_refuses_a_broken_standings_file(tmp_path, bad, capsys):
 def house_round(names, house, results):
     """A round of `names` on a server with the house bots `house`, ended with `results`
     as `Arena.run` ends it; returns the server."""
-    server = ArenaServer(load_map("cavern"), RULES, 0.3, seed=1, benchmarks=GIVEN, house=house)
+    server = ArenaServer(CAVERN, RULES, 0.3, seed=1, benchmarks={"cavern": GIVEN}, house=house)
     bots = [SimpleNamespace(name=n, human=False, arena=None) for n in names]
     arena = Arena(server, 1, bots, seed=1, wave=1)
     for milestone, name, money in arena.tracker.round_end(results, arena.benchmarks):
@@ -465,7 +466,7 @@ def test_house_bot_left_out_of_standings_rows_from_an_older_file(tmp_path):
     path = tmp_path / "standings.json"
     path.write_text(json.dumps({"awards": {"ace": {"hello": {"place": 1, "points": 25}},
                                            "anna": {"hello": {"place": 2, "points": 18}}}}))
-    server = ArenaServer(load_map("cavern"), RULES, 0.3, seed=1, benchmarks=GIVEN,
+    server = ArenaServer(CAVERN, RULES, 0.3, seed=1, benchmarks={"cavern": GIVEN},
                          standings=path, house=["ace"])
     rows = json.loads(server.http("/standings.json")[2])["standings"]
     assert [(r["name"], r["rank"]) for r in rows] == [("anna", 1)]
@@ -475,8 +476,9 @@ def test_server_house_bot_plays_but_never_scores():
     lines = []
 
     async def main_():
-        server = ArenaServer(load_map("cavern"), RULES, 0.2, seed=1, say=lines.append,
-                             benchmarks={"greedy": -10**6, "pilot": -10**6}, house=["ace"])
+        server = ArenaServer(CAVERN, RULES, 0.2, seed=1, say=lines.append,
+                             benchmarks={"cavern": {"greedy": -10**6, "pilot": -10**6}},
+                             house=["ace"])
         srv, port = await start(server)
         spec = await ws.connect(f"ws://127.0.0.1:{port}/spectate")
         assert (await recv(spec))["type"] == "spectate"

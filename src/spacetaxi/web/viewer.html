@@ -72,6 +72,8 @@ body.live #play, body.live [data-speed], body.live #scrub { display: none; }
 body.live #bar { justify-content: flex-end; }
 #splash .queue { font-size: 28px; color: #7dff5a; text-shadow: 0 0 10px #7dff5a; }
 #splash .queue:empty { display: none; }
+#splash .nextmap { font-size: 28px; color: #2ef2ff; text-shadow: 0 0 10px #2ef2ff; }
+#splash .nextmap:empty { display: none; }
 #lb {
   position: absolute; right: 0; top: 120px; bottom: 72px; width: 420px; box-sizing: border-box;
   padding: 28px 24px; background: rgba(7,5,15,.78); border-left: 2px solid #7a5cff;
@@ -169,6 +171,7 @@ body.fly #bar { justify-content: flex-end; }
     <span class="title">SPACETAXI</span>
     <span class="coin">INSERT COIN &mdash; CLICK TO START</span>
     <span class="queue" id="queue"></span>
+    <span class="nextmap" id="nextMap"></span>
     <span class="hint">SPACE PLAY/PAUSE &middot; 1-4 SPEED &middot; C SCREEN &middot; M OR SOUND BUTTON MUTE &middot; D DEBUG</span>
   </button>
   <div id="toasts" aria-live="polite"></div>

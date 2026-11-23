@@ -32,7 +32,7 @@ async def scripted_bot(port: int, name: str) -> None:
 @pytest.fixture
 def arena(serve_arena):
     """An arena server with one scripted bot; returns (base URL, server)."""
-    server = ArenaServer(load_map("cavern"), RULES, 1.0, seed=1, max_arenas=3)
+    server = ArenaServer({"cavern": load_map("cavern")}, RULES, 1.0, seed=1, max_arenas=3)
     base, server, _ = serve_arena(server, lambda loop, port: loop.create_task(scripted_bot(port, "robo")))
     return base, server
 

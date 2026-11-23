@@ -74,7 +74,15 @@ The procedure and the go/no-go reading are in [docs/venue-wifi-test.md](docs/ven
 ```sh
 uv run spacetaxi serve --map cavern --port 8000 --log results.jsonl --replays replays/
 uv run spacetaxi serve --rule round_ticks=300 --fill-seconds 5 --seed 1   # shorter rounds and pauses
+uv run spacetaxi serve --map cavern --map canyon --map classic             # maps to switch between
 ```
+
+`--map` is repeatable: the first is the map the arena starts on, the others are the ones it can
+switch to. While `serve` runs, type `map canyon` and Enter in its terminal to set the map of the
+next wave (the wave in progress finishes on its map; `serve` answers `next wave: canyon`), and
+`maps` to list them with the current and the next one. All arenas of a wave play one map; bots
+get it, and its name as `map_name`, in every `round_start`, and the log and the replays record
+it. Without a terminal (e.g. run in the background) the map stays the first one.
 
 Bots connect to `ws://HOST:8000/bot` (protocol in [docs/rules.md](docs/rules.md)) and wait in one
 queue. Rounds run in waves: a wave starts `--fill-seconds` (default 10) after the first bot
@@ -109,7 +117,12 @@ data), and `/watch` pops up every award. Humans do not score.
 ```sh
 uv run spacetaxi serve --standings standings.json                      # keep the race across restarts
 uv run spacetaxi serve --benchmark greedy=300 --benchmark pilot=450    # skip the benchmark simulation
+uv run spacetaxi serve --map cavern --map canyon --benchmark canyon:greedy=250   # another map's
 ```
+
+Every map has its own benchmarks (simulated at start, or given per map as `MAP:BOT=MONEY`), and
+a round's `beat_greedy` / `beat_pilot` compare against its map's; `/standings` and `/mission`
+show those of the current wave's map.
 
 ### Running the workshop
 
@@ -120,6 +133,10 @@ it on the projector at the start and leave it open on phones. Participants give 
 brief, `http://HOST:8000/brief` (raw Markdown at `/brief.md`, from [docs/brief.md](docs/brief.md)),
 not the card: the milestones are for the people, who slice the work one small prompt per
 milestone. During the race keep `/standings` on the projector.
+For a mid-race twist that shows whose agent built a general bot rather than one tuned to one map,
+start `serve` with every map you may use (`--map cavern --map canyon`) and type `map canyon` in
+its terminal: the next wave plays canyon, bots stay connected, and the INSERT COIN splash on
+`/watch` names the next map.
 Each participant keeps `http://HOST:8000/mission` open next to their agent: it shows only their
 next milestone (goal, a hint phrased as a question, a ready prompt for the first one only, from
 [docs/missions.md](docs/missions.md)) and celebrates each award. The name typed there only

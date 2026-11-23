@@ -103,8 +103,8 @@ def get(port: int, path: str) -> tuple[str, str]:
 
 def test_server_serves_card_and_brief_with_its_address():
     async def main():
-        server = ArenaServer(load_map("cavern"), Rules(tick_ms=50, deadline_ms=30, round_ticks=20),
-                             60, seed=1, benchmarks={"greedy": 1, "pilot": 1})
+        server = ArenaServer({"cavern": load_map("cavern")},
+                             Rules(tick_ms=50, deadline_ms=30, round_ticks=20), 60, seed=1, benchmarks={"cavern": {"greedy": 1, "pilot": 1}})
         srv = await server.start("127.0.0.1", 0)
         port = srv.sockets[0].getsockname()[1]
         pages = {p: await asyncio.to_thread(get, port, p)
@@ -127,7 +127,7 @@ def test_server_serves_card_and_brief_with_its_address():
 
 
 def test_the_address_given_wins_over_the_bound_one():
-    server = ArenaServer(load_map("cavern"), Rules(), 60, seed=1)
+    server = ArenaServer({"cavern": load_map("cavern")}, Rules(), 60, seed=1)
     server.address = "10.0.0.7:8000"
     card = server.http("/card")[2].decode("utf-8")
     assert "ws://10.0.0.7:8000/bot" in card and "HOST:PORT" not in card
@@ -143,7 +143,7 @@ def test_missions_follow_the_rules_and_only_the_first_has_a_prompt():
 
 
 def test_server_serves_the_mission_page_with_its_address():
-    server = ArenaServer(load_map("cavern"), Rules(), 60, seed=1)
+    server = ArenaServer({"cavern": load_map("cavern")}, Rules(), 60, seed=1)
     server.address = "10.0.0.7:8000"
     status, kind, body = server.http("/mission")
     page = body.decode("utf-8")
