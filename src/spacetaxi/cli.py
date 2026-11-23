@@ -3,7 +3,11 @@ connect."""
 
 import argparse
 import asyncio
+import contextlib
 import json
+import os
+import signal
+import stat
 import sys
 import threading
 import time
@@ -137,6 +141,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--house", action="append", default=[], metavar="NAME",
         help="a house bot's name: it plays, but never scores milestones and has no standings "
              "row (repeatable)")
+    serve_cmd.add_argument(
+        "--control", metavar="PATH",
+        help="create a named pipe at PATH and read the terminal's commands (`map NAME`, "
+             "`maps`) from it too, one per line, e.g. echo 'map classic' > PATH; removed on exit")
     serve_cmd.set_defaults(func=cmd_serve)
 
     connect_cmd = commands.add_parser(
@@ -373,6 +381,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
                             say=lambda text: print(text, flush=True),
                             standings=args.standings, benchmarks=benchmarks,
                             house=args.house)
+        if args.control:
+            make_pipe(args.control)
     except (MapError, RuleError, OSError, ValueError, KeyError) as exc:
         print(f"spacetaxi serve: error: {exc}", file=sys.stderr)
         return 2
@@ -394,10 +404,20 @@ def cmd_serve(args: argparse.Namespace) -> int:
         if args.house:
             print(f"house bots (never score): {', '.join(args.house)}")
         reading = read_commands(arena)
+        if args.control:
+            read_control(arena, args.control)
+            print(f"commands also from the pipe {args.control}")
         print("type `map NAME` + Enter to switch the next wave's map, `maps` to list them; "
               "Ctrl-C stops" if reading else "Ctrl-C stops", flush=True)
-        async with server:
-            await server.serve_forever()
+        stop = asyncio.Event()
+        try:  # a plain kill (SIGTERM) stops the server like Ctrl-C, so the pipe is removed
+            asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, stop.set)
+        except NotImplementedError:  # Windows: no signal handlers on the loop
+            pass
+        try:
+            await stop.wait()
+        finally:  # no waiting for the bots' connections: asyncio.run cancels them
+            server.close()
 
     try:
         asyncio.run(serve())
@@ -406,6 +426,10 @@ def cmd_serve(args: argparse.Namespace) -> int:
     except OSError as exc:
         print(f"spacetaxi serve: error: cannot serve on port {args.port}: {exc}", file=sys.stderr)
         return 2
+    finally:
+        if args.control:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(args.control)
     return 0
 
 
@@ -454,17 +478,48 @@ def read_commands(arena) -> bool:
         return False
     loop = asyncio.get_running_loop()
 
-    def run_command(line: str) -> None:
-        answer = arena.command(line)
-        if answer:
-            print(answer, flush=True)
-
     def reader() -> None:
         for line in sys.stdin:
-            loop.call_soon_threadsafe(run_command, line)
+            loop.call_soon_threadsafe(run_command, arena, line)
 
     threading.Thread(target=reader, daemon=True, name="commands").start()
     return True
+
+
+def run_command(arena, line: str) -> None:
+    """One operator command, answered on stdout."""
+    answer = arena.command(line)
+    if answer:
+        print(answer, flush=True)
+
+
+def make_pipe(path: str) -> None:
+    """A fresh named pipe at `path`, replacing a stale pipe; anything else there is an error."""
+    try:
+        if stat.S_ISFIFO(os.lstat(path).st_mode):
+            os.unlink(path)
+        else:
+            raise OSError(f"--control {path}: exists and is not a named pipe")
+    except FileNotFoundError:
+        pass
+    os.mkfifo(path)
+
+
+def read_control(arena, path: str) -> None:
+    """Read commands from the named pipe at `path` in a daemon thread, each answered on stdout
+    like a typed one. A writer closing ends one open; the pipe is opened again for the next."""
+    loop = asyncio.get_running_loop()
+
+    def reader() -> None:
+        while True:
+            try:
+                with open(path, encoding="utf-8", errors="replace") as pipe:  # waits for a writer
+                    for line in pipe:
+                        loop.call_soon_threadsafe(run_command, arena, line)
+            except OSError:  # the pipe is gone: the server is stopping
+                return
+
+    threading.Thread(target=reader, daemon=True, name="control").start()
 
 
 def cmd_connect(args: argparse.Namespace) -> int:

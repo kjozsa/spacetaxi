@@ -3,12 +3,15 @@
 import asyncio
 import io
 import json
+import os
+import stat
 import sys
 
 import pytest
 
 from spacetaxi import ws
-from spacetaxi.cli import RuleError, load_maps, main, parse_benchmarks, read_commands
+from spacetaxi.cli import (RuleError, load_maps, main, make_pipe, parse_benchmarks, read_commands,
+                           read_control)
 from spacetaxi.maps import load_map
 from spacetaxi.server import ArenaServer
 from spacetaxi.show import load_replay
@@ -169,3 +172,42 @@ def test_commands_are_not_read_without_a_terminal(monkeypatch):
         return read_commands(two_maps())
 
     assert asyncio.run(main_()) is False
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="named pipes need POSIX")
+def test_control_pipe_switches_the_map_and_survives_a_writer_closing(tmp_path, capsys):
+    pipe = tmp_path / "control"
+    pipe.write_bytes(b"")
+    with pytest.raises(OSError, match="not a named pipe"):
+        make_pipe(str(pipe))
+    pipe.unlink()
+    os.mkfifo(pipe)  # a stale pipe is replaced
+    make_pipe(str(pipe))
+    assert stat.S_ISFIFO(os.lstat(pipe).st_mode)
+
+    async def write(text):
+        def blocking():
+            with open(pipe, "w") as f:  # waits for the reader
+                f.write(text)
+        await asyncio.to_thread(blocking)
+
+    async def until(check):
+        for _ in range(100):
+            if check():
+                return True
+            await asyncio.sleep(0.02)
+        return False
+
+    async def main_():
+        server = two_maps()
+        read_control(server, str(pipe))
+        await write("map classic\n")
+        switched = await until(lambda: server.next_map == "classic")
+        await write("maps\nmap cavern\n")  # a second writer after the first closed
+        back = await until(lambda: server.next_map == "cavern")
+        return switched, back
+
+    assert asyncio.run(main_()) == (True, True)
+    out = capsys.readouterr().out
+    assert "next wave: classic" in out
+    assert "maps: cavern (current), classic (next)" in out
