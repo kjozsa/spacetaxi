@@ -11,7 +11,7 @@ import pytest
 
 from spacetaxi import ws
 from spacetaxi.cli import (RuleError, load_maps, main, make_pipe, parse_benchmarks, read_commands,
-                           read_control, remove_pipe)
+                           read_control)
 from spacetaxi.maps import load_map
 from spacetaxi.server import ArenaServer
 from spacetaxi.show import load_replay
@@ -211,5 +211,3 @@ def test_control_pipe_switches_the_map_and_survives_a_writer_closing(tmp_path, c
     out = capsys.readouterr().out
     assert "next wave: classic" in out
     assert "maps: cavern (current), classic (next)" in out
-    remove_pipe(str(pipe))
-    assert not pipe.exists()

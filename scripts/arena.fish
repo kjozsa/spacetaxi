@@ -193,8 +193,12 @@ switch $cmd
         echo "sent '$line'; the answer is in the arena's output"
 
     case status
-        py 'import json, os, sys, urllib.request
-port, folder = sys.argv[1], sys.argv[2]
+        set running
+        for name in (house_names)
+            alive $dir/house-$name.pid; and set -a running $name
+        end
+        py 'import json, sys, urllib.request
+port, house = sys.argv[1], sys.argv[2:]
 def get(path):
     with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=2) as r:
         return json.load(r)
@@ -202,27 +206,18 @@ try:
     board, standings = get("/leaderboard.json"), get("/standings.json")
 except Exception:
     sys.exit(f"arena :{port} is not answering")
-def alive(name):
-    try:
-        with open(os.path.join(folder, name)) as f:
-            os.kill(int(f.read()), 0)
-        return True
-    except (OSError, ValueError):
-        return False
 playing = sum(len(a["players"]) for a in board["arenas"])
 now, then, wave, waiting = (standings["map_name"], board["next_map"], board["wave"],
                             board["waiting"])
 print(f"arena :{port} up  map {now}, next {then}  wave {wave}  "
       f"{waiting} waiting, {playing} playing")
-house = sorted(n[6:-4] for n in os.listdir(folder)
-               if n.startswith("house-") and n.endswith(".pid") and alive(n))
 print("house: " + (" ".join(house) if house else "none"))
 rows = standings["standings"][:5]
 for row in rows:
     rank, name, points, got = row["rank"], row["name"], row["points"], len(row["milestones"])
     print(f"{rank:>3}. {name:<12} {points:>5} pts  {got} milestones")
 if not rows:
-    print("no standings yet")' $port $dir
+    print("no standings yet")' $port $running
 
     case open
         answers; or fail "no arena answers on port $port (start it with up)"
@@ -241,7 +236,8 @@ if not rows:
             stop $dir/house-$name.pid
         end
         set -q names[1]; and echo "stopped house bots: "(string join ', ' $names)
-        if alive $dir/serve.pid
+        # serve removes the pipe on exit: without it serve.pid is stale (Ctrl-C), its PID maybe reused
+        if alive $dir/serve.pid; and test -p $pipe
             stop $dir/serve.pid
             echo "stopped the arena on port $port"
         else

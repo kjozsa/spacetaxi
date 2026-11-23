@@ -3,6 +3,7 @@ connect."""
 
 import argparse
 import asyncio
+import contextlib
 import json
 import os
 import signal
@@ -411,7 +412,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
         stop = asyncio.Event()
         try:  # a plain kill (SIGTERM) stops the server like Ctrl-C, so the pipe is removed
             asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, stop.set)
-        except (NotImplementedError, AttributeError, RuntimeError):
+        except NotImplementedError:  # Windows: no signal handlers on the loop
             pass
         try:
             await stop.wait()
@@ -427,7 +428,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
         return 2
     finally:
         if args.control:
-            remove_pipe(args.control)
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(args.control)
     return 0
 
 
@@ -501,14 +503,6 @@ def make_pipe(path: str) -> None:
     except FileNotFoundError:
         pass
     os.mkfifo(path)
-
-
-def remove_pipe(path: str) -> None:
-    try:
-        if stat.S_ISFIFO(os.lstat(path).st_mode):
-            os.unlink(path)
-    except OSError:
-        pass
 
 
 def read_control(arena, path: str) -> None:
