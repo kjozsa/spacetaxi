@@ -135,8 +135,9 @@ not the card: the milestones are for the people, who slice the work one small pr
 milestone. During the race keep `/standings` on the projector.
 For a mid-race twist that shows whose agent built a general bot rather than one tuned to one map,
 start `serve` with every map you may use (`--map cavern --map canyon`) and type `map canyon` in
-its terminal: the next wave plays canyon, bots stay connected, and the INSERT COIN splash on
-`/watch` names the next map.
+its terminal (or, with `serve --control PATH`, write it into that named pipe:
+`echo 'map canyon' > PATH`): the next wave plays canyon, bots stay connected, and the INSERT
+COIN splash on `/watch` names the next map.
 Each participant keeps `http://HOST:8000/mission` open next to their agent: it shows only their
 next milestone (goal, a hint phrased as a question, a ready prompt for the first one only, from
 [docs/missions.md](docs/missions.md)) and celebrates each award. The name typed there only
@@ -163,6 +164,30 @@ scripts/sim.fish -m canyon -b pilot,./mybot.py -n 10 -s 7 -p 8001   # serve the 
 ```
 
 `-h` lists every option. Replays and pages go to `out/` (git-ignored).
+
+`scripts/arena.fish` runs the workshop arena; every command takes `-p PORT` (default 8000) and
+keeps its state (standings, log, replays, pid files, bot logs, the control pipe) in
+`out/arena/PORT/`:
+
+| command | what it does |
+| --- | --- |
+| `up [-m MAP]... [--fresh] [-r KEY=VALUE]... [-f SECONDS]` | serve the arena in the foreground, house bot names reserved; `--fresh` archives the race so far to `archive-<timestamp>/` |
+| `house [pilot\|greedy] [-n N]` | start house bots in the background: `ace`, `ace2`, `ace3` fly pilot, `gus`, `gus2`, `gus3` greedy |
+| `unhouse [NAME\|all]` | stop house bots started by `house` |
+| `map NAME`, `maps` | switch the next wave's map, list the maps (answered in `up`'s output) |
+| `status` | up or not, current and next map, waiting and playing, house bots, top 5 |
+| `open [--card]` | open `/watch` and `/standings` (and `/card`) in the browser |
+| `down` | stop the house bots and the arena |
+
+A workshop run, `up` in one terminal and the rest in another:
+
+```fish
+scripts/arena.fish up --fresh -m cavern -m classic   # a new race; Ctrl-C or down stops it
+scripts/arena.fish house                             # one pilot and one greedy fill the rounds
+scripts/arena.fish open --card                       # watch, standings and the card
+scripts/arena.fish map classic                       # the mid-race twist
+scripts/arena.fish down                              # the end
+```
 
 ## Write a bot
 
