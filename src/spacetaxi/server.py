@@ -62,7 +62,7 @@ import time
 from pathlib import Path
 
 from . import ws
-from .maps import Map, bundled_maps, load_map
+from .maps import Map
 from .milestones import (BENCHMARK_BOTS, BENCHMARK_ROUNDS, MILESTONES, POINTS, Standings,
                          Tracker)
 from .milestones import benchmarks as simulate_benchmarks
@@ -104,11 +104,6 @@ def group_sizes(waiting: int, max_arenas: int = MAX_ARENAS) -> list[int]:
         return []
     k = -(-n // ARENA_SIZE)
     return [n // k + (1 if i < n % k else 0) for i in range(k)]
-
-
-def map_name(game_map: Map) -> str:
-    """The name of the bundled map `game_map` is, or `map`."""
-    return next((name for name in bundled_maps() if load_map(name) == game_map), "map")
 
 
 def dumps(message: dict) -> str:
@@ -334,20 +329,15 @@ class Arena:
 class ArenaServer:
     """The queue, the waves of arenas, the leaderboard and the WebSocket handler."""
 
-    def __init__(self, game_map: "Map | dict[str, Map]", rules: Rules | None = None,
+    def __init__(self, maps: dict[str, Map], rules: Rules | None = None,
                  fill_seconds: float = 10,
                  log: str | Path | None = None, replays: str | Path | None = None,
                  seed: int | None = None, max_arenas: int = MAX_ARENAS, say=None,
-                 standings: str | Path | None = None, benchmarks: dict | None = None,
-                 house=()):
-        """`game_map` is one map, or the maps to choose from by name (the first starts).
-        `benchmarks` gives known ones: `{bot: money}` for the first map, or `{map name: {bot:
-        money}}`."""
-        if isinstance(game_map, Map):
-            game_map = {map_name(game_map): game_map}
-        if not game_map:
-            raise ValueError("no map given")
-        self.maps: dict[str, Map] = dict(game_map)
+                 standings: str | Path | None = None,
+                 benchmarks: dict[str, dict[str, int]] | None = None, house=()):
+        """`maps` are the maps to choose from by name (the first starts); `benchmarks` gives
+        known ones as `{map name: {bot: money}}`."""
+        self.maps = dict(maps)
         self.map_name = next(iter(self.maps))  # the map of the current (or last) wave
         self.next_map = self.map_name  # the map the next wave plays
         self.rules = rules or Rules()
@@ -377,14 +367,8 @@ class ArenaServer:
         # per map, the money beat_greedy / beat_pilot must beat; None until simulated
         self.map_benchmarks: dict[str, dict[str, int | None]] = {
             name: {bot: None for bot in BENCHMARK_BOTS} for name in self.maps}
-        for key, value in (benchmarks or {}).items():
-            if isinstance(value, dict):
-                if key not in self.maps:
-                    raise ValueError(f"benchmark for unknown map {key!r}; maps: "
-                                     + ", ".join(self.maps))
-                self.map_benchmarks[key].update(value)
-            else:
-                self.map_benchmarks[self.map_name][key] = value
+        for name, values in (benchmarks or {}).items():
+            self.map_benchmarks[name].update(values)
         self.pending: list[tuple] = []  # (wave, tick, milestone, name, key) not yet scored
         self.standings_page: bytes | None = None
         self.address: str | None = None  # HOST:PORT for the card and brief; set by start()
@@ -399,11 +383,6 @@ class ArenaServer:
                     self.wave = max(self.wave, record.get("wave", 0))
         if self.replays:
             self.replays.mkdir(parents=True, exist_ok=True)
-
-    @property
-    def map(self) -> Map:
-        """The map of the current (or last) wave."""
-        return self.maps[self.map_name]
 
     @property
     def benchmarks(self) -> dict[str, int | None]:
@@ -443,7 +422,7 @@ class ArenaServer:
             return 200, "text/html; charset=utf-8", (WEB_DIR / "leaderboard.html").read_bytes()
         if path == "/leaderboard.json":
             data = {"leaderboard": self.leaderboard.table(), "rounds": self.rounds,
-                    "wave": self.wave, "map_name": self.map_name, "next_map": self.next_map,
+                    "wave": self.wave, "next_map": self.next_map,
                     "connected": len(self.bots), "waiting": len(self.queue),
                     "arenas": sorted([{"round": a.number, "arena": a.slot, "players": a.names,
                                        "tick": a.playing} for a in self.arenas],

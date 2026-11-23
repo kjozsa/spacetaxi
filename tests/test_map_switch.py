@@ -1,7 +1,9 @@
 """Switching the map between waves on a running server (`serve --map A --map B`, `map NAME`)."""
 
 import asyncio
+import io
 import json
+import sys
 
 import pytest
 
@@ -104,8 +106,7 @@ def test_unknown_map_is_an_error_and_keeps_the_next_map():
     assert server.command("maps") == "maps: cavern (current, next), classic"
     assert server.command("") is None
     assert server.command("hello").startswith("commands: ")
-    data = json.loads(server.http("/leaderboard.json")[2])
-    assert (data["map_name"], data["next_map"]) == ("cavern", "cavern")
+    assert json.loads(server.http("/leaderboard.json")[2])["next_map"] == "cavern"
 
 
 def test_watch_and_fly_pages_show_the_next_map():
@@ -161,8 +162,10 @@ def test_serve_rejects_a_benchmark_for_a_map_not_served(capsys):
     assert "no map 'classic'" in capsys.readouterr().err
 
 
-def test_commands_are_not_read_without_a_terminal():
+def test_commands_are_not_read_without_a_terminal(monkeypatch):
+    monkeypatch.setattr(sys, "stdin", io.StringIO("map classic\n"))
+
     async def main_():
-        return read_commands(two_maps())  # pytest's stdin is not a terminal
+        return read_commands(two_maps())
 
     assert asyncio.run(main_()) is False

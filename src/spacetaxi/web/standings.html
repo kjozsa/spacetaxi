@@ -94,8 +94,8 @@ function render(data) {
   const b = data.benchmarks;
   const bench = Object.entries(b).map(([k, v]) => `${k.toUpperCase()}'S BEST ROUND <b>${v === null ? "..." : "$" + v}</b>`);
   document.getElementById("info").innerHTML =
-    `F1 POINTS ${data.points.join(" ")}<br>BENCHMARKS` +
-    (data.map_name ? ` ON ${esc(data.map_name.toUpperCase())}` : "") + ` ${bench.join(" · ")}`;
+    `F1 POINTS ${data.points.join(" ")}<br>BENCHMARKS ON ${esc(data.map_name.toUpperCase())} ` +
+    bench.join(" · ");
   const head = document.getElementById("head");
   head.replaceChildren(cell("th", "rank", "#"), cell("th", "name", "NAME"),
     ...data.milestones.map(m => {

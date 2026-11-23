@@ -23,7 +23,8 @@ def get_json(base, path):
 
 
 def test_house_bot_is_marked_and_never_scores(browser, serve_arena):
-    server = ArenaServer(load_map("cavern"), RULES, 1.0, seed=1, max_arenas=3, house=["ace"])
+    server = ArenaServer({"cavern": load_map("cavern")}, RULES, 1.0, seed=1, max_arenas=3,
+                         house=["ace"])
 
     def start(loop, port):
         return [loop.create_task(scripted_bot(port, "ace")),

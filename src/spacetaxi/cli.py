@@ -5,6 +5,7 @@ import argparse
 import asyncio
 import json
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -408,16 +409,12 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
-def map_name(arg: str) -> str:
-    """The name `serve` knows a `--map` by: a bundled map's name, a file's name without .txt."""
-    return Path(arg).stem if "/" in arg or arg.endswith(".txt") else arg
-
-
 def load_maps(args: list[str]) -> dict:
-    """Every `--map` loaded, by name (`map_name`), in the order given."""
+    """Every `--map` loaded, in the order given, by name: a bundled map's name, a file's name
+    without .txt."""
     maps = {}
     for arg in args:
-        name = map_name(arg)
+        name = Path(arg).stem
         if name in maps:
             raise RuleError(f"--map {arg!r}: a map named {name!r} is already given")
         maps[name] = load_map(arg)
@@ -450,12 +447,10 @@ def parse_benchmarks(items: list[str], maps: list[str]) -> dict[str, dict[str, i
 def read_commands(arena) -> bool:
     """Read the operator's commands (`map NAME`, `maps`) from stdin in a daemon thread, each
     answered on stdout; only when stdin is a terminal. Returns whether it reads."""
-    import threading
-
     try:
         if not sys.stdin or not sys.stdin.isatty():
             return False
-    except (ValueError, OSError):
+    except ValueError:  # stdin is closed
         return False
     loop = asyncio.get_running_loop()
 

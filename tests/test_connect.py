@@ -148,7 +148,7 @@ def raising_bot() -> types.ModuleType:
 
 def test_a_bot_that_raises_in_move_keeps_its_connection_and_coasts():
     async def main_():
-        server = ArenaServer(load_map("cavern"), RULES, 0.1, seed=1)
+        server = ArenaServer({"cavern": load_map("cavern")}, RULES, 0.1, seed=1)
         srv = await server.start("127.0.0.1", 0)
         port = srv.sockets[0].getsockname()[1]
         said: list[str] = []
@@ -175,7 +175,7 @@ def test_a_bot_that_raises_in_move_keeps_its_connection_and_coasts():
 
 def test_a_taken_name_is_said_in_plain_words():
     async def main_():
-        server = ArenaServer(load_map("cavern"), RULES, 60, seed=1)
+        server = ArenaServer({"cavern": load_map("cavern")}, RULES, 60, seed=1)
         srv = await server.start("127.0.0.1", 0)
         port = srv.sockets[0].getsockname()[1]
         url = f"ws://127.0.0.1:{port}/bot"

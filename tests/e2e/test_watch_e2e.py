@@ -33,7 +33,7 @@ async def scripted_bot(port: int, name: str) -> None:
 
 def run_arena(serve_arena, bots: int, fill_seconds: float):
     """An arena server with `bots` scripted bots; returns (base URL, server)."""
-    server = ArenaServer(load_map("cavern"), RULES, fill_seconds, seed=1, max_arenas=3)
+    server = ArenaServer({"cavern": load_map("cavern")}, RULES, fill_seconds, seed=1, max_arenas=3)
     base, server, _ = serve_arena(server, lambda loop, port: [
         loop.create_task(scripted_bot(port, f"bot{i}")) for i in range(bots)])
     return base, server

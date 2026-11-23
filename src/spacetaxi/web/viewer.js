@@ -904,7 +904,7 @@ function onLive(msg) {
   const slot = msg.arena;
   if (msg.type === "round_start") {
     const rules = { ...ROUNDS[0].rules, ...(msg.rules || {}) };
-    live.slots[slot] = { round: msg.round, arena: slot, map_name: msg.map_name || null,
+    live.slots[slot] = { round: msg.round, arena: slot, map_name: msg.map_name,
                          map: msg.map, pads: msg.pads,
                          players: msg.players, humans: msg.humans || [],
                          house: msg.house || [], rules, ticks: [],
@@ -957,8 +957,8 @@ async function loadLeaderboard() {
   window.spacetaxi.waiting = data.waiting;
   window.spacetaxi.leaderboard = data.leaderboard.map(r => r.name);
   queueEl.textContent = `${data.waiting} ${data.waiting === 1 ? "BOT" : "BOTS"} IN THE QUEUE`;
-  window.spacetaxi.nextMap = data.next_map || null;
-  nextMapEl.textContent = data.next_map ? `NEXT MAP: ${data.next_map.toUpperCase()}` : "";
+  window.spacetaxi.nextMap = data.next_map;
+  nextMapEl.textContent = `NEXT MAP: ${data.next_map.toUpperCase()}`;
   lbSub.textContent = `WAVE ${data.wave} \u00b7 ${data.rounds} ROUNDS \u00b7 AVG $`;
   window.spacetaxi.wave = data.wave;
   if (!data.leaderboard.length) {
@@ -1096,7 +1096,7 @@ function onFly(msg, sock) {
     fly.countdown = setInterval(() => { statusEl.textContent = text(); }, 250);
   } else if (msg.type === "round_start") {
     const rules = { ...ROUNDS[0].rules, ...(msg.rules || {}) };
-    fly.round = { round: msg.round, arena: 1, map_name: msg.map_name || null, map: msg.map,
+    fly.round = { round: msg.round, arena: 1, map_name: msg.map_name, map: msg.map,
                   pads: msg.pads, players: msg.players,
                   humans: [], rules, ticks: [], over: false };
     fly.index = msg.players.indexOf(fly.id);
