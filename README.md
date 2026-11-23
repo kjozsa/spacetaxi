@@ -126,6 +126,8 @@ show those of the current wave's map.
 
 ### Running the workshop
 
+The facilitator's timeline and pit stops are in [docs/agenda.md](docs/agenda.md).
+
 Hand out the participant card: `http://HOST:8000/card` (from
 [docs/participant-card.md](docs/participant-card.md), with the server's real address filled in;
 `serve` prints the URL) has the server's URLs, the milestones, the points and a first prompt. Put
