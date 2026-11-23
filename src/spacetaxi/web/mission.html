@@ -39,6 +39,8 @@ a { color: var(--cyan); }
 #status.down { color: var(--pink); }
 
 /* done missions: a strip of small chips */
+#nobot { font-family: var(--pixel); font-size: .65em; color: var(--pink); line-height: 1.6;
+         margin: 1em 0 0; overflow-wrap: anywhere; }
 #done { display: flex; flex-wrap: wrap; align-items: center; gap: .45em; margin: 1em 0 0; }
 .chip { font-family: var(--pixel); font-size: .55em; padding: .55em .7em; color: #04030b;
         background: var(--green); box-shadow: 0 0 .5em var(--green); }
@@ -104,14 +106,16 @@ button:active { transform: translateY(1px); }
 <p id="status"></p>
 
 <form id="ask" class="screen" hidden>
-  <h1>WHO IS FLYING?</h1>
-  <input id="askName" maxlength="12" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="first name">
-  <p>The same name your bot connects with. 1-12 letters, digits, <code>_</code> or <code>-</code>.</p>
+  <h1>WHICH BOT DO YOU FOLLOW?</h1>
+  <input id="askName" maxlength="12" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="bot name">
+  <p>The name your bot connects with, in any case. This only picks the bot this page follows: it
+     registers nothing, so open it in as many browsers as you like.</p>
   <div id="askErr"></div>
   <button type="submit">GO</button>
 </form>
 
 <section id="view" hidden>
+  <p id="nobot" hidden></p>
   <div id="done"></div>
   <article id="mission">
     <div id="count"></div>
@@ -198,8 +202,10 @@ $("ask").addEventListener("submit", e => {
 });
 $("rename").addEventListener("click", e => { e.preventDefault(); askName(); });
 
+// names ignore case: `Haiku` typed here follows the bot `haiku`
 function row() {
-  return st.data.standings.find(r => r.name === st.name);
+  const key = st.name.toLowerCase();
+  return st.data.standings.find(r => r.name.toLowerCase() === key);
 }
 
 function render() {
@@ -214,6 +220,10 @@ function render() {
   const index = MISSIONS.findIndex(m => !shown.has(m.id));
   const total = r ? r.points : 0;
   const rankText = r ? `RANK ${r.rank}` : "NO RANK YET";
+  const name = r ? r.name : st.name;   // the bot's own spelling once it has connected
+  $("whoName").textContent = name;
+  $("nobot").hidden = !!r;
+  $("nobot").textContent = r ? "" : `NO BOT NAMED ${st.name.toUpperCase()} HAS CONNECTED YET`;
 
   if (index < 0) {
     $("view").hidden = true;
@@ -267,7 +277,7 @@ function render() {
       : `TO BEAT: $${v}, ${bot.toUpperCase()}'S BEST ROUND`;
   }
   $("promptBox").hidden = !m.prompt;
-  if (m.prompt) $("prompt").textContent = m.prompt.replace(/NAME/g, st.name);
+  if (m.prompt) $("prompt").textContent = m.prompt.replace(/NAME/g, name);
 }
 
 function update(data) {

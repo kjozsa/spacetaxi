@@ -122,7 +122,9 @@ not the card: the milestones are for the people, who slice the work one small pr
 milestone. During the race keep `/standings` on the projector.
 Each participant keeps `http://HOST:8000/mission` open next to their agent: it shows only their
 next milestone (goal, a hint phrased as a question, a ready prompt for the first one only, from
-[docs/missions.md](docs/missions.md)) and celebrates each award.
+[docs/missions.md](docs/missions.md)) and celebrates each award. The name typed there only
+picks the bot to follow, ignoring case; bot names ignore case too, the first spelling seen keeps
+the name.
 
 A participant flying alone never reaches milestones 6 to 9 (they need a round of at least 2
 taxis), so start house bots to fill the rounds, and name them to `serve` so they never take a

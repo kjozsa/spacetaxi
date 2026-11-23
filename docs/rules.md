@@ -269,7 +269,7 @@ once, however often it reaches it again.
   greedy=N --benchmark pilot=N` gives them instead. The server prints the values in use and the
   standings page shows them.
 - **Humans** (`"client": "human"` in `hello`) never score and have no standings row.
-- **House bots** named with `spacetaxi serve --house NAME` never score either and have no
+- **House bots** named with `spacetaxi serve --house NAME` (ignoring case) never score either and have no
   standings row, so places go to the participants as if the house bots were not in the race;
   they still count as taxis for milestones 6 to 9.
 - **Standings.** Points belong to the name, so a bot that reconnects under the same name keeps
@@ -286,7 +286,10 @@ Every message is one JSON object with a `type`. Server to bot: `welcome`, `queue
 ### `hello`
 
 The bot's first message. `name` becomes the taxi id: 1 to 12 characters, each one of `A-Z`,
-`a-z`, `0-9`, `_` and `-`. `protocol` is the protocol version, `1` for this document.
+`a-z`, `0-9`, `_` and `-`. Names ignore case: the first spelling the server sees (a connected
+bot's, or one in the standings or the leaderboard) keeps the name, and `hello` with another
+spelling of it (`haiku` for `Haiku`) is refused with `name_taken`. The server never renames a
+bot. `protocol` is the protocol version, `1` for this document.
 `client` is optional: `"human"` says a person flies this taxi by hand (the server's `/fly`
 page). The server plays a human like any bot, but marks it as human on the leaderboard and to
 spectators. Any other value, or none, is a bot.
@@ -471,7 +474,8 @@ Sent after the last tick, with per-taxi results.
 Sent when the server refuses a bot or a message; the server then closes the socket. `message`
 is free text for humans. `code` is one of:
 
-- `name_taken`: another connected bot already has this `name`.
+- `name_taken`: another connected bot already has this `name`, or the server knows the name
+  in another spelling (names ignore case); the message names the spelling to connect as.
 - `bad_name`: the `name` in `hello` breaks the naming rule.
 - `bad_protocol`: the server does not speak the `protocol` in `hello`.
 - `bad_message`: the message is not JSON, not an object, has an unknown `type`, or is not
@@ -479,4 +483,5 @@ is free text for humans. `code` is one of:
 
 ```json
 {"type": "error", "code": "name_taken", "message": "name 'alice' is already connected"}
+{"type": "error", "code": "name_taken", "message": "name 'haiku' is taken as 'Haiku'; connect as 'Haiku'"}
 ```

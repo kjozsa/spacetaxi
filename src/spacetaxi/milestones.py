@@ -132,11 +132,12 @@ class Standings:
         os.replace(tmp, self.path)
 
     def table(self, leave_out=()) -> list[dict]:
-        """One row per name but those in `leave_out`: most points first, then most milestones,
+        """One row per name but those in `leave_out` (ignoring case): most points first, then most milestones,
         then by name; equal points and milestones share the rank."""
+        leave_out = {n.lower() for n in leave_out}
         rows = [{"name": name, "points": sum(a["points"] for a in got.values()),
                  "milestones": {m: got[m] for m in MILESTONES if m in got}}
-                for name, got in self.awards.items() if name not in leave_out]
+                for name, got in self.awards.items() if name.lower() not in leave_out]
         rows.sort(key=lambda r: (-r["points"], -len(r["milestones"]), r["name"]))
         for i, row in enumerate(rows):
             before = rows[i - 1] if i else None

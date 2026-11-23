@@ -9,7 +9,9 @@ possible (7 bots play 4 and 3, 6 play 3 and 3); bots beyond that wait for the ne
 deal is a seeded shuffle that prefers bots who have met least so far and avoids repeating a
 group of the previous wave, so groups mix and the leaderboard compares like with like. A bot
 that joins mid-wave plays from the next wave; after `round_end` every bot of the round that is
-still connected goes back to the end of the queue.
+still connected goes back to the end of the queue. Names ignore case: the first spelling seen
+(connected, or in the standings or the leaderboard) keeps the name, and a `hello` with another
+spelling of it gets `name_taken` naming that spelling; the server never renames a bot.
 
 All arenas of a wave start together and tick every `tick_ms` on the same clock. A `move` counts when it names the tick being
 played and arrives within `deadline_ms` of that tick being sent; anything else is dropped and the
@@ -147,7 +149,7 @@ class Leaderboard:
 
     def __init__(self, house=()):
         self.rows: dict[str, dict] = {}
-        self.house = set(house)  # names marked as house bots
+        self.house = {n.lower() for n in house}  # names marked as house bots, ignoring case
 
     def add(self, record: dict) -> None:
         for r in record["results"]:
@@ -172,7 +174,7 @@ class Leaderboard:
                 "crashes": row["crashes"],
                 "late_pct": round(100 * row["late"] / row["ticks"], 1) if row["ticks"] else 0.0,
                 "human": row.get("human", False),
-                "house": name in self.house,
+                "house": name.lower() in self.house,
             })
         out.sort(key=lambda r: (-r["avg_money"], -r["total_money"], r["name"]))
         return out
@@ -190,7 +192,7 @@ class Arena:
         self.bots = bots
         self.names = [b.name for b in bots]
         self.humans = [b.name for b in bots if b.human]
-        self.house = [n for n in self.names if n in server.house]
+        self.house = [n for n in self.names if n.lower() in server.house]
         self.rules = server.rules
         self.world = World(server.map, self.rules, seed=seed, players=self.names)
         self.playing = 0  # the tick whose moves are being collected, 0 before the first
@@ -337,7 +339,8 @@ class ArenaServer:
         self.watch_page: bytes | None = None  # built on the first request
         self.fly_page: bytes | None = None
         self.tasks: set[asyncio.Task] = set()
-        self.house = set(house)  # the house bots' names: they never score milestones
+        # the house bots' names, lowercased (names ignore case): they never score milestones
+        self.house = {n.lower() for n in house}
         self.leaderboard = Leaderboard(self.house)
         self.rounds = 0
         self.wave = 0
@@ -610,6 +613,15 @@ class ArenaServer:
         except ConnectionError:
             pass
 
+    def spelling(self, name: str) -> str | None:
+        """The spelling the server knows `name` by, ignoring case: a connected bot's, a
+        standings row's or a leaderboard row's; None for a new name."""
+        key = name.lower()
+        for known in (*self.bots, *self.standings.awards, *self.leaderboard.rows):
+            if known.lower() == key:
+                return known
+        return None
+
     async def handle(self, sock: ws.WebSocket, path: str) -> None:
         try:
             async with asyncio.timeout(HELLO_TIMEOUT):
@@ -629,10 +641,14 @@ class ArenaServer:
                                     f"this server speaks protocol {PROTOCOL}")
         if name in self.bots:
             return await self.error(sock, "name_taken", f"name {name!r} is already connected")
+        spelling = self.spelling(name)
+        if spelling is not None and spelling != name:
+            return await self.error(sock, "name_taken", f"name {name!r} is taken as {spelling!r}; "
+                                                        f"connect as {spelling!r}")
         human = hello.get("client") == "human"
         bot = Bot(name, sock, human=human)
         self.bots[name] = bot
-        house = name in self.house
+        house = name.lower() in self.house
         self.say(f"+ {name} joined from {sock.peer}" + (" (human)" if human else "")
                  + (" (house)" if house else ""))
         bot.send({"type": "welcome", "id": name, "rules": self.rules.to_dict()})
