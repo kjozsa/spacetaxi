@@ -51,7 +51,8 @@ def test_mission_page_one_milestone_at_a_time(browser, arena, shots):
 
     # first visit: the name, validated like a hello name
     assert page.locator("#ask").is_visible()
-    assert "The same name your bot connects with" in page.locator("#ask").inner_text()
+    assert "WHICH BOT DO YOU FOLLOW?" in page.locator("#ask").inner_text()
+    assert "only picks the bot this page follows" in page.locator("#ask").inner_text()
     page.fill("#askName", "Anna Maria")
     page.click("#ask button")
     assert page.locator("#askErr").inner_text() != ""
@@ -218,4 +219,27 @@ def test_mission_page_rename_during_a_celebration_keeps_the_award_off_the_new_na
     assert page.evaluate("window.spacetaxi.celebrated") == ["liftoff P2 +18"]
     assert page.evaluate("window.spacetaxi.mission") == "liftoff"
     assert page.locator("#done .chip").all_inner_texts()[0].startswith("hello P")
+    context.close()
+
+
+def test_mission_page_follows_a_name_ignoring_case_and_says_when_no_bot_has_it(browser, arena):
+    base, award = arena
+    award(("hello", "haiku"))
+    context = browser.new_context(viewport={"width": 390, "height": 844})
+    page = context.new_page()
+    page.goto(base + "/mission")
+    page.fill("#askName", "Haiku")
+    page.click("#ask button")
+    page.wait_for_function("window.spacetaxi.mission === 'liftoff'", timeout=5000)
+    assert page.locator("#whoName").inner_text() == "haiku"   # the bot's own spelling
+    assert page.locator("#done .chip").all_inner_texts() == ["hello P3 +15"]
+    assert not page.locator("#nobot").is_visible()
+
+    page.click("#rename")
+    page.fill("#askName", "Nobody")
+    page.click("#ask button")
+    page.wait_for_function("document.getElementById('whoName').textContent === 'Nobody' && "
+                           "window.spacetaxi.mission === 'hello'", timeout=5000)
+    assert page.locator("#nobot").inner_text() == "NO BOT NAMED NOBODY HAS CONNECTED YET"
+    assert "ws://" in page.locator("#prompt").inner_text()   # the hello prompt still helps
     context.close()

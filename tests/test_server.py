@@ -471,3 +471,89 @@ def test_fly_page_is_the_viewer_in_fly_mode_without_external_requests():
     assert 'id="join"' in html and 'id="leave"' in html and 'id="touch"' in html
     assert not re.search(r"https?://", html)
     assert "url(data:font/ttf;base64," in html
+
+
+# --- names ignore case
+
+
+async def refused(port: int, name: str) -> dict:
+    sock = await join(port, name)
+    msg = await recv(sock)
+    assert await recv(sock) is None
+    return msg
+
+
+def test_names_ignore_case_and_the_first_spelling_keeps_the_name():
+    async def main():
+        server = make_server(fill_seconds=60)
+        srv, port = await start(server)
+        haiku = await join(port, "Haiku")
+        assert (await recv(haiku))["type"] == "welcome"
+        while_connected = await refused(port, "haiku")
+        same_spelling = await refused(port, "Haiku")
+        human = await ws.connect(f"ws://127.0.0.1:{port}/bot")  # /fly: the same rule
+        await human.send(json.dumps({"type": "hello", "name": "HaiKu", "protocol": 1,
+                                     "client": "human"}))
+        human_msg = await recv(human)
+        assert await recv(human) is None
+        await haiku.close()
+        await asyncio.sleep(0.1)
+        assert "Haiku" not in server.bots
+        after_leaving = await refused(port, "HAIKU")  # in the standings with its hello
+        again = await join(port, "Haiku")
+        welcome = await recv(again)
+        # two other names from the same client address both connect
+        a, b = await join(port, "a1"), await join(port, "b1")
+        others = [(await recv(a))["type"], (await recv(b))["type"]]
+        for s in (again, a, b):
+            await s.close()
+        srv.close()
+        return server, while_connected, same_spelling, human_msg, after_leaving, welcome, others
+
+    (server, while_connected, same_spelling, human_msg, after_leaving, welcome,
+     others) = asyncio.run(main())
+    assert human_msg["code"] == "name_taken" and "connect as 'Haiku'" in human_msg["message"]
+    assert while_connected["code"] == "name_taken"
+    assert while_connected["message"] == "name 'haiku' is taken as 'Haiku'; connect as 'Haiku'"
+    assert same_spelling["code"] == "name_taken" and "already connected" in same_spelling["message"]
+    assert after_leaving["code"] == "name_taken" and "connect as 'Haiku'" in after_leaving["message"]
+    assert welcome["type"] == "welcome" and welcome["id"] == "Haiku"
+    assert others == ["welcome", "welcome"]
+    assert set(server.standings.awards) == {"Haiku", "a1", "b1"}
+    assert server.standings.awards["Haiku"]["hello"] == {"place": 1, "points": 25}
+
+
+def test_names_in_the_rebuilt_leaderboard_and_standings_ignore_case(tmp_path):
+    log = tmp_path / "results.jsonl"
+    log.write_text(json.dumps({"type": "round_end", "round": 1, "wave": 1, "results": [
+        {"id": "Gus", "money": 10, "deliveries": 0, "crashes": 0, "ticks": 20, "late": 0}]})
+        + "\n")
+    standings = tmp_path / "standings.json"
+    standings.write_text(json.dumps({"awards": {"Anna": {"hello": {"place": 1, "points": 25}}}}))
+
+    async def main():
+        server = make_server(fill_seconds=60, log=log, standings=standings)
+        srv, port = await start(server)
+        out = [await refused(port, "gus"), await refused(port, "ANNA")]
+        srv.close()
+        return out
+
+    gus, anna = asyncio.run(main())
+    assert gus["code"] == anna["code"] == "name_taken"
+    assert "connect as 'Gus'" in gus["message"] and "connect as 'Anna'" in anna["message"]
+
+
+def test_house_names_ignore_case():
+    async def main():
+        server = make_server(fill_seconds=60, house=["Ace"])
+        srv, port = await start(server)
+        ace = await join(port, "ace")
+        assert (await recv(ace))["type"] == "welcome"
+        await asyncio.sleep(0.05)
+        await ace.close()
+        srv.close()
+        return server
+
+    server = asyncio.run(main())
+    assert "ace" not in server.standings.awards
+    assert Leaderboard(["ACE"]).house == {"ace"}
