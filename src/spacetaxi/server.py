@@ -45,7 +45,12 @@ and sent to spectators as `milestone`. `/standings` is the projector page of the
 (`docs/participant-card.md`, `docs/brief.md`, rendered, with `address` filled in for HOST:PORT;
 `/brief.md` is the raw Markdown). `/mission` is each participant's own page: their next
 milestone only, from `docs/missions.md`, polling `/standings.json`. The house bots' benchmarks
-are simulated in a thread at start, unless `benchmarks` gives them.
+are simulated in a thread at start, for every map, unless `benchmarks` gives them.
+
+The server can have several maps (`maps`, the first is the start map). `command` takes one line
+the operator typed (`map NAME`, `maps`): `map NAME` sets the map of the next wave; the wave in
+progress finishes on its map. All arenas of a wave play one map, named in `round_start` as
+`map_name`, and their `beat_greedy` / `beat_pilot` compare against that map's benchmarks.
 """
 
 import asyncio
@@ -57,7 +62,7 @@ import time
 from pathlib import Path
 
 from . import ws
-from .maps import Map
+from .maps import Map, bundled_maps, load_map
 from .milestones import (BENCHMARK_BOTS, BENCHMARK_ROUNDS, MILESTONES, POINTS, Standings,
                          Tracker)
 from .milestones import benchmarks as simulate_benchmarks
@@ -99,6 +104,11 @@ def group_sizes(waiting: int, max_arenas: int = MAX_ARENAS) -> list[int]:
         return []
     k = -(-n // ARENA_SIZE)
     return [n // k + (1 if i < n % k else 0) for i in range(k)]
+
+
+def map_name(game_map: Map) -> str:
+    """The name of the bundled map `game_map` is, or `map`."""
+    return next((name for name in bundled_maps() if load_map(name) == game_map), "map")
 
 
 def dumps(message: dict) -> str:
@@ -194,7 +204,9 @@ class Arena:
         self.humans = [b.name for b in bots if b.human]
         self.house = [n for n in self.names if n.lower() in server.house]
         self.rules = server.rules
-        self.world = World(server.map, self.rules, seed=seed, players=self.names)
+        self.map_name = server.map_name  # the map of the wave this round belongs to
+        self.map = server.maps[self.map_name]
+        self.world = World(self.map, self.rules, seed=seed, players=self.names)
         self.playing = 0  # the tick whose moves are being collected, 0 before the first
         self.sent_ns = 0
         self.records: dict[str, dict] = {}
@@ -202,7 +214,8 @@ class Arena:
         self.replay = None
         self.shown: dict[str, str] = {}  # the latest message of each type sent to spectators
         self.tracker = Tracker(self.names, [*self.humans, *self.house])
-        self.benchmarks = dict(server.benchmarks)  # as at round start: known ones count
+        # this map's benchmarks as at round start: known ones count
+        self.benchmarks = dict(server.map_benchmarks[self.map_name])
         self.stepped = 0  # the last tick played (round_ticks + 1 once the round has ended)
         for bot in bots:
             bot.arena = self
@@ -257,10 +270,11 @@ class Arena:
         """Play the round in real time, tick `k` at `t0 + k * tick_ms` (perf_counter_ns; the
         wave's shared clock); returns its log record."""
         rules = self.rules
-        game_map = self.server.map
+        game_map = self.map
         round_start = {
             "type": "round_start",
             "round": self.number,
+            "map_name": self.map_name,
             "map": list(game_map.rows),
             "pads": [p.to_dict() for p in game_map.pads],
             "spawns": [{"x": x, "y": y} for x, y in game_map.spawns],
@@ -309,6 +323,7 @@ class Arena:
             "type": "round_end",
             "round": self.number,
             "wave": self.wave,
+            "map_name": self.map_name,
             "time": time.strftime("%Y-%m-%dT%H:%M:%S"),
             "results": [{**r, "ticks": rules.round_ticks, "late": self.late[r["id"]],
                          **({"human": True} if r["id"] in self.humans else {})}
@@ -319,12 +334,22 @@ class Arena:
 class ArenaServer:
     """The queue, the waves of arenas, the leaderboard and the WebSocket handler."""
 
-    def __init__(self, game_map: Map, rules: Rules | None = None, fill_seconds: float = 10,
+    def __init__(self, game_map: "Map | dict[str, Map]", rules: Rules | None = None,
+                 fill_seconds: float = 10,
                  log: str | Path | None = None, replays: str | Path | None = None,
                  seed: int | None = None, max_arenas: int = MAX_ARENAS, say=None,
                  standings: str | Path | None = None, benchmarks: dict | None = None,
                  house=()):
-        self.map = game_map
+        """`game_map` is one map, or the maps to choose from by name (the first starts).
+        `benchmarks` gives known ones: `{bot: money}` for the first map, or `{map name: {bot:
+        money}}`."""
+        if isinstance(game_map, Map):
+            game_map = {map_name(game_map): game_map}
+        if not game_map:
+            raise ValueError("no map given")
+        self.maps: dict[str, Map] = dict(game_map)
+        self.map_name = next(iter(self.maps))  # the map of the current (or last) wave
+        self.next_map = self.map_name  # the map the next wave plays
         self.rules = rules or Rules()
         self.fill_ns = int(fill_seconds * 1e9)
         self.log = Path(log) if log else None
@@ -336,8 +361,8 @@ class ArenaServer:
         self.queue: list[Bot] = []
         self.arenas: set[Arena] = set()
         self.spectators: set[Bot] = set()
-        self.watch_page: bytes | None = None  # built on the first request
-        self.fly_page: bytes | None = None
+        self.watch_pages: dict[str, bytes] = {}  # per map, built on the first request
+        self.fly_pages: dict[str, bytes] = {}
         self.tasks: set[asyncio.Task] = set()
         # the house bots' names, lowercased (names ignore case): they never score milestones
         self.house = {n.lower() for n in house}
@@ -349,9 +374,17 @@ class ArenaServer:
         self.met: dict[frozenset, int] = {}  # rounds each pair of names has shared
         self.last_groups: set[frozenset] = set()  # the previous wave's groups
         self.standings = Standings(standings)
-        # the money beat_greedy / beat_pilot must beat; None until simulated
-        self.benchmarks: dict[str, int | None] = {bot: None for bot in BENCHMARK_BOTS}
-        self.benchmarks.update(benchmarks or {})
+        # per map, the money beat_greedy / beat_pilot must beat; None until simulated
+        self.map_benchmarks: dict[str, dict[str, int | None]] = {
+            name: {bot: None for bot in BENCHMARK_BOTS} for name in self.maps}
+        for key, value in (benchmarks or {}).items():
+            if isinstance(value, dict):
+                if key not in self.maps:
+                    raise ValueError(f"benchmark for unknown map {key!r}; maps: "
+                                     + ", ".join(self.maps))
+                self.map_benchmarks[key].update(value)
+            else:
+                self.map_benchmarks[self.map_name][key] = value
         self.pending: list[tuple] = []  # (wave, tick, milestone, name, key) not yet scored
         self.standings_page: bytes | None = None
         self.address: str | None = None  # HOST:PORT for the card and brief; set by start()
@@ -367,6 +400,38 @@ class ArenaServer:
         if self.replays:
             self.replays.mkdir(parents=True, exist_ok=True)
 
+    @property
+    def map(self) -> Map:
+        """The map of the current (or last) wave."""
+        return self.maps[self.map_name]
+
+    @property
+    def benchmarks(self) -> dict[str, int | None]:
+        """The benchmarks of the current (or last) wave's map."""
+        return self.map_benchmarks[self.map_name]
+
+    # --- the operator's commands
+
+    def command(self, line: str) -> str | None:
+        """One line typed in `serve`'s terminal; returns the answer to print (None for an
+        empty line). `map NAME` sets the next wave's map, `maps` lists them."""
+        words = line.split()
+        if not words:
+            return None
+        if words[0] == "maps" and len(words) == 1:
+            def tags(name):
+                t = [w for w, on in (("current", name == self.map_name),
+                                     ("next", name == self.next_map)) if on]
+                return f" ({', '.join(t)})" if t else ""
+            return "maps: " + ", ".join(name + tags(name) for name in self.maps)
+        if words[0] == "map" and len(words) == 2:
+            name = words[1]
+            if name not in self.maps:
+                return f"unknown map {name!r}; maps: {', '.join(self.maps)}"
+            self.next_map = name
+            return f"next wave: {name}"
+        return "commands: map NAME (the next wave's map), maps (list them)"
+
     # --- HTTP
 
     def doc(self, name: str) -> str:
@@ -378,7 +443,8 @@ class ArenaServer:
             return 200, "text/html; charset=utf-8", (WEB_DIR / "leaderboard.html").read_bytes()
         if path == "/leaderboard.json":
             data = {"leaderboard": self.leaderboard.table(), "rounds": self.rounds,
-                    "wave": self.wave, "connected": len(self.bots), "waiting": len(self.queue),
+                    "wave": self.wave, "map_name": self.map_name, "next_map": self.next_map,
+                    "connected": len(self.bots), "waiting": len(self.queue),
                     "arenas": sorted([{"round": a.number, "arena": a.slot, "players": a.names,
                                        "tick": a.playing} for a in self.arenas],
                                      key=lambda a: a["round"])}
@@ -390,7 +456,7 @@ class ArenaServer:
         if path == "/standings.json":
             data = {"standings": self.standings.table(self.house),
                     "milestones": list(MILESTONES), "points": list(POINTS),
-                    "benchmarks": self.benchmarks,
+                    "map_name": self.map_name, "benchmarks": self.benchmarks,
                     "reached": {m: self.standings.reached(m) for m in MILESTONES}}
             return 200, "application/json", json.dumps(data).encode("utf-8")
         if path == "/mission":
@@ -402,14 +468,13 @@ class ArenaServer:
             if path.endswith(".md"):
                 return 200, "text/markdown; charset=utf-8", text.encode("utf-8")
             return 200, "text/html; charset=utf-8", build_doc_html(text, title).encode("utf-8")
-        if path == "/watch":
-            if self.watch_page is None:
-                self.watch_page = build_live_html(self.map, self.rules).encode("utf-8")
-            return 200, "text/html; charset=utf-8", self.watch_page
-        if path == "/fly":
-            if self.fly_page is None:
-                self.fly_page = build_fly_html(self.map, self.rules).encode("utf-8")
-            return 200, "text/html; charset=utf-8", self.fly_page
+        if path in ("/watch", "/fly"):  # the empty map shown before a round: the next one
+            pages, build = ((self.watch_pages, build_live_html) if path == "/watch"
+                            else (self.fly_pages, build_fly_html))
+            name = self.next_map
+            if name not in pages:
+                pages[name] = build(self.maps[name], self.rules).encode("utf-8")
+            return 200, "text/html; charset=utf-8", pages[name]
         return None
 
     async def start(self, host: str | None = None, port: int = 8000) -> asyncio.Server:
@@ -417,24 +482,30 @@ class ArenaServer:
         if self.address is None:
             self.address = f"{host or 'localhost'}:{server.sockets[0].getsockname()[1]}"
         self._spawn(self.scheduler())
-        if any(v is None for v in self.benchmarks.values()):
+        for name, values in self.map_benchmarks.items():
+            if all(v is not None for v in values.values()):
+                self.say_benchmarks(name, "given")
+        if any(v is None for values in self.map_benchmarks.values() for v in values.values()):
             self._spawn(self.find_benchmarks())
-        else:
-            self.say_benchmarks("given")
         return server
 
-    def say_benchmarks(self, how: str) -> None:
-        self.say("benchmarks (" + how + "): " + " ".join(
-            f"{bot}={money}" for bot, money in self.benchmarks.items()))
+    def say_benchmarks(self, name: str, how: str) -> None:
+        self.say(f"benchmarks on {name} ({how}): " + " ".join(
+            f"{bot}={money}" for bot, money in self.map_benchmarks[name].items()))
 
     async def find_benchmarks(self) -> None:
-        """Simulate the missing benchmarks in a thread, so the arena runs meanwhile."""
-        missing = [bot for bot, money in self.benchmarks.items() if money is None]
-        self.say(f"benchmarks: simulating {', '.join(missing)} on the map for the best of "
-                 f"{BENCHMARK_ROUNDS} rounds ...")
-        found = await asyncio.to_thread(simulate_benchmarks, self.map, self.rules, missing)
-        self.benchmarks.update(found)
-        self.say_benchmarks(f"simulated, best round of {BENCHMARK_ROUNDS}")
+        """Simulate the missing benchmarks in a thread, map by map, so the arena runs
+        meanwhile."""
+        for name, values in self.map_benchmarks.items():
+            missing = [bot for bot, money in values.items() if money is None]
+            if not missing:
+                continue
+            self.say(f"benchmarks: simulating {', '.join(missing)} on {name} for the best of "
+                     f"{BENCHMARK_ROUNDS} rounds ...")
+            found = await asyncio.to_thread(simulate_benchmarks, self.maps[name], self.rules,
+                                            missing)
+            values.update(found)
+            self.say_benchmarks(name, f"simulated, best round of {BENCHMARK_ROUNDS}")
 
     def _spawn(self, coro) -> asyncio.Task:
         task = asyncio.create_task(coro)
@@ -545,7 +616,9 @@ class ArenaServer:
         self.queue = [b for b in self.queue if b.name not in dealt]
         self.wave += 1
         self.next_wave_ns = None
-        self.say(f"wave {self.wave}: " + " | ".join(", ".join(g) for g in groups))
+        self.map_name = self.next_map  # the whole wave plays one map
+        self.say(f"wave {self.wave} on {self.map_name}: "
+                 + " | ".join(", ".join(g) for g in groups))
         arenas = []
         for slot, group in enumerate(groups, 1):
             self.rounds += 1

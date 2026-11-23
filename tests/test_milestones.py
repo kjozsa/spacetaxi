@@ -223,7 +223,7 @@ def test_benchmark_override_is_used_and_shown():
 
     server = asyncio.run(main_())
     assert server.benchmarks == GIVEN
-    assert "benchmarks (given): greedy=300 pilot=450" in lines
+    assert "benchmarks on cavern (given): greedy=300 pilot=450" in lines
     assert not any("simulating" in line for line in lines)
     data = json.loads(server.http("/standings.json")[2])
     assert data["benchmarks"] == GIVEN
@@ -247,7 +247,7 @@ def test_automatic_benchmarks_are_simulated_in_the_background():
     server = asyncio.run(main_())
     assert type(server.benchmarks["greedy"]) is int and server.benchmarks["greedy"] > 0
     assert server.benchmarks["pilot"] == 450
-    assert any(line.startswith("benchmarks (simulated, best round of 20): greedy=") for line in lines)
+    assert any(line.startswith("benchmarks on cavern (simulated, best round of 20): greedy=") for line in lines)
 
 
 def test_beat_milestones_wait_for_the_round_after_the_benchmark():

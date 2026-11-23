@@ -85,12 +85,17 @@ function cell(tag, cls, text) {
   return el;
 }
 
+function esc(text) {
+  return text.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+}
+
 function render(data) {
   window.spacetaxi.standings = data;
   const b = data.benchmarks;
   const bench = Object.entries(b).map(([k, v]) => `${k.toUpperCase()}'S BEST ROUND <b>${v === null ? "..." : "$" + v}</b>`);
   document.getElementById("info").innerHTML =
-    `F1 POINTS ${data.points.join(" ")}<br>BENCHMARKS ${bench.join(" · ")}`;
+    `F1 POINTS ${data.points.join(" ")}<br>BENCHMARKS` +
+    (data.map_name ? ` ON ${esc(data.map_name.toUpperCase())}` : "") + ` ${bench.join(" · ")}`;
   const head = document.getElementById("head");
   head.replaceChildren(cell("th", "rank", "#"), cell("th", "name", "NAME"),
     ...data.milestones.map(m => {

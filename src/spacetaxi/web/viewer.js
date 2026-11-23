@@ -41,7 +41,8 @@ const splash = document.getElementById("splash");
 // order), the texts of the destination tags drawn, their boxes on the stage (`[x, y, w, h]`, in
 // the same order) and the ids of the pads pulsing as the
 // destination of a carried passenger, the human players of the round and the players whose
-// taxi has the HUMAN tag or (fly mode) the YOU marker this frame.
+// taxi has the HUMAN tag or (fly mode) the YOU marker this frame. Live: `mapName` and `map`
+// (its rows) of the map drawn (the round's, from its round_start), `nextMap` the next wave's.
 const fx = { flames: 0, explosions: 0, dust: 0, pickups: 0, cash: 0, shakes: 0 };
 const sfx = { hum: 0, boom: 0, chime: 0, cash: 0, jingle: 0, fanfare: 0 };
 window.spacetaxi = { round: 0, tick: 0, fps: 0, scanlines: true, podium: null, fx, sfx,
@@ -837,6 +838,8 @@ function showSlot(slot) {
   R.jingled = Boolean(R.data.over);
   seek(Math.max(0, R.ticks.length - 2));
   window.spacetaxi.arena = slot;
+  window.spacetaxi.mapName = R.data.map_name || null;
+  window.spacetaxi.map = R.data.map;
 }
 
 // The picker: "follow" or an arena slot number.
@@ -901,7 +904,8 @@ function onLive(msg) {
   const slot = msg.arena;
   if (msg.type === "round_start") {
     const rules = { ...ROUNDS[0].rules, ...(msg.rules || {}) };
-    live.slots[slot] = { round: msg.round, arena: slot, map: msg.map, pads: msg.pads,
+    live.slots[slot] = { round: msg.round, arena: slot, map_name: msg.map_name || null,
+                         map: msg.map, pads: msg.pads,
                          players: msg.players, humans: msg.humans || [],
                          house: msg.house || [], rules, ticks: [],
                          over: false };
@@ -937,10 +941,10 @@ function connectLive() {
   };
 }
 
-// The leaderboard panel and the queue length on the splash, from /leaderboard.json: at every
-// round end and every few seconds.
+// The leaderboard panel, and the queue length and the next wave's map on the splash, from
+// /leaderboard.json: at every round end and every few seconds.
 const lbRows = document.getElementById("lbRows"), lbSub = document.getElementById("lbSub");
-const queueEl = document.getElementById("queue");
+const queueEl = document.getElementById("queue"), nextMapEl = document.getElementById("nextMap");
 async function loadLeaderboard() {
   let data;
   try {
@@ -953,6 +957,8 @@ async function loadLeaderboard() {
   window.spacetaxi.waiting = data.waiting;
   window.spacetaxi.leaderboard = data.leaderboard.map(r => r.name);
   queueEl.textContent = `${data.waiting} ${data.waiting === 1 ? "BOT" : "BOTS"} IN THE QUEUE`;
+  window.spacetaxi.nextMap = data.next_map || null;
+  nextMapEl.textContent = data.next_map ? `NEXT MAP: ${data.next_map.toUpperCase()}` : "";
   lbSub.textContent = `WAVE ${data.wave} \u00b7 ${data.rounds} ROUNDS \u00b7 AVG $`;
   window.spacetaxi.wave = data.wave;
   if (!data.leaderboard.length) {
@@ -1090,7 +1096,8 @@ function onFly(msg, sock) {
     fly.countdown = setInterval(() => { statusEl.textContent = text(); }, 250);
   } else if (msg.type === "round_start") {
     const rules = { ...ROUNDS[0].rules, ...(msg.rules || {}) };
-    fly.round = { round: msg.round, arena: 1, map: msg.map, pads: msg.pads, players: msg.players,
+    fly.round = { round: msg.round, arena: 1, map_name: msg.map_name || null, map: msg.map,
+                  pads: msg.pads, players: msg.players,
                   humans: [], rules, ticks: [], over: false };
     fly.index = msg.players.indexOf(fly.id);
     live.slots[1] = fly.round;

@@ -180,3 +180,48 @@ def test_watch_pops_up_milestones_and_standings_render(browser, lonely, shots):
     board.screenshot(path=str(shots / "standings.png"))
     board.close()
     assert errors == []
+
+
+@pytest.fixture
+def two_maps(serve_arena):
+    """Two scripted bots on a server with cavern and classic (cavern first)."""
+    maps = {"cavern": load_map("cavern"), "classic": load_map("classic")}
+    server = ArenaServer(maps, RULES, 0.5, seed=1, benchmarks={"cavern": {"greedy": 1, "pilot": 1},
+                                                              "classic": {"greedy": 1, "pilot": 1}})
+    base, server, loop = serve_arena(server, lambda loop, port: [
+        loop.create_task(scripted_bot(port, f"bot{i}")) for i in range(2)])
+    return base, server, loop
+
+
+def test_watch_shows_the_new_map_after_a_switch_without_a_reload(browser, two_maps):
+    base, server, loop = two_maps
+    page, errors = open_watch(browser, base)
+    page.click("#splash")
+    page.wait_for_function("window.spacetaxi.mapName === 'cavern' && window.spacetaxi.tick > 0",
+                           timeout=15000)
+    assert state(page)["map"] == list(load_map("cavern").rows)
+    page.evaluate("window.__same_page = true")
+
+    async def switch():  # typed in serve's terminal; run on the server's loop
+        return server.command("map classic")
+
+    answer = asyncio.run_coroutine_threadsafe(switch(), loop).result(5)
+    assert answer == "next wave: classic"
+    page.wait_for_function("window.spacetaxi.nextMap === 'classic'", timeout=10000)
+    assert state(page)["mapName"] == "cavern"  # the wave in progress finishes on its map
+
+    page.wait_for_function("window.spacetaxi.mapName === 'classic'", timeout=20000)
+    assert state(page)["map"] == list(load_map("classic").rows)
+    assert page.evaluate("window.__same_page") is True
+    page.close()
+    assert errors == []
+
+
+def test_insert_coin_names_the_next_map(browser, lonely):
+    base, server = lonely
+    page, errors = open_watch(browser, base)
+    page.wait_for_function("window.spacetaxi.nextMap === 'cavern'", timeout=10000)
+    page.click("#splash")
+    assert "NEXT MAP: CAVERN" in page.locator("#splash").inner_text()
+    page.close()
+    assert errors == []
