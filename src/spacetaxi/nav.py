@@ -42,7 +42,7 @@ nav.sitenav a:focus-visible { outline: 2px solid #ffd23f; outline-offset: -2px; 
 def nav_links(current: str) -> str:
     """The links of the bar, `current` marked."""
     return "".join('<a href="{}"{}>{}</a>'.format(
-        href, ' aria-current="page"' if href == current else "", _html.escape(label))
+        _html.escape(href), ' aria-current="page"' if href == current else "", _html.escape(label))
         for href, label in NAV_PAGES)
 
 

@@ -1048,7 +1048,6 @@ function planClock() {
 const NAV_IDLE_MS = 3000;
 function idleNav() {
   const nav = document.querySelector("#bar .barnav");
-  if (!nav) return;
   let timer = 0;
   const wake = () => {
     nav.classList.remove("idle");

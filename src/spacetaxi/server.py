@@ -487,13 +487,15 @@ class ArenaServer:
             return 200, "text/html; charset=utf-8", self.slides_page
         if path == "/mission":
             text = self.doc("missions.md")
-            return 200, "text/html; charset=utf-8", with_nav(build_mission_html(text), path).encode("utf-8")
+            page = with_nav(build_mission_html(text), path)
+            return 200, "text/html; charset=utf-8", page.encode("utf-8")
         if path in DOC_PAGES:
             name, title = DOC_PAGES[path]
             text = self.doc(name)
             if path.endswith(".md"):
                 return 200, "text/markdown; charset=utf-8", text.encode("utf-8")
-            return 200, "text/html; charset=utf-8", with_nav(build_doc_html(text, title), path).encode("utf-8")
+            page = with_nav(build_doc_html(text, title), path)
+            return 200, "text/html; charset=utf-8", page.encode("utf-8")
         if path in ("/watch", "/fly"):  # the empty map shown before a round: the next one
             pages, build = ((self.watch_pages, build_live_html) if path == "/watch"
                             else (self.fly_pages, build_fly_html))
