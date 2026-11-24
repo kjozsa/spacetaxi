@@ -44,7 +44,8 @@ and sent to spectators as `milestone`. `/standings` is the projector page of the
 `/standings.json` its data. `/card` is the participant card and `/brief` the agent brief
 (`docs/participant-card.md`, `docs/brief.md`, rendered, with `address` filled in for HOST:PORT;
 `/brief.md` is the raw Markdown). `/mission` is each participant's own page: their next
-milestone only, from `docs/missions.md`, polling `/standings.json`. The house bots' benchmarks
+milestone only, from `docs/missions.md`, polling `/standings.json`. `/slides` is the intro deck
+(`docs/slides/intro.html`, self-contained, HOST:8000 filled in). The house bots' benchmarks
 are simulated in a thread at start, for every map, unless `benchmarks` gives them.
 
 The server can have several maps (`maps`, the first is the start map). `command` takes one line
@@ -54,6 +55,7 @@ progress finishes on its map. All arenas of a wave play one map, named in `round
 """
 
 import asyncio
+import base64
 import itertools
 import json
 import random
@@ -88,12 +90,31 @@ DOC_PAGES = {"/card": ("participant-card.md", "Spacetaxi: participant card"),
              "/brief.md": ("brief.md", "")}
 
 
-def doc_text(name: str) -> str:
+def doc_path(name: str) -> Path:
     """A file of `docs/`: packaged next to the code in a wheel, the repo's `docs/` otherwise."""
     for docs in (Path(__file__).parent / "docs", Path(__file__).resolve().parents[2] / "docs"):
         if (docs / name).is_file():
-            return (docs / name).read_text(encoding="utf-8")
+            return docs / name
     raise FileNotFoundError(name)
+
+
+def doc_text(name: str) -> str:
+    return doc_path(name).read_text(encoding="utf-8")
+
+
+def build_slides_html(address: str) -> str:
+    """docs/slides/intro.html as one self-contained page: the font and the images inlined,
+    HOST:8000 replaced by `address`."""
+    def data_uri(path: Path, kind: str) -> str:
+        return f"data:{kind};base64," + base64.b64encode(path.read_bytes()).decode("ascii")
+
+    html = doc_text("slides/intro.html")
+    html = html.replace("../../src/spacetaxi/web/PressStart2P-Regular.ttf",
+                        data_uri(WEB_DIR / "PressStart2P-Regular.ttf", "font/ttf"))
+    kinds = {".png": "image/png", ".jpg": "image/jpeg"}
+    html = re.sub(r'src="(img/[\w.-]+)"', lambda m: 'src="{}"'.format(
+        data_uri(doc_path("slides/" + m[1]), kinds[Path(m[1]).suffix])), html)
+    return html.replace("HOST:8000", address)
 
 
 def group_sizes(waiting: int, max_arenas: int = MAX_ARENAS) -> list[int]:
@@ -371,6 +392,7 @@ class ArenaServer:
             self.map_benchmarks[name].update(values)
         self.pending: list[tuple] = []  # (wave, tick, milestone, name, key) not yet scored
         self.standings_page: bytes | None = None
+        self.slides_page: bytes | None = None
         self.address: str | None = None  # HOST:PORT for the card and brief; set by start()
         if self.log and self.log.exists():
             with open(self.log, encoding="utf-8") as f:
@@ -438,6 +460,10 @@ class ArenaServer:
                     "map_name": self.map_name, "benchmarks": self.benchmarks,
                     "reached": {m: self.standings.reached(m) for m in MILESTONES}}
             return 200, "application/json", json.dumps(data).encode("utf-8")
+        if path == "/slides":
+            if self.slides_page is None:
+                self.slides_page = build_slides_html(self.address or "HOST:8000").encode("utf-8")
+            return 200, "text/html; charset=utf-8", self.slides_page
         if path == "/mission":
             text = self.doc("missions.md")
             return 200, "text/html; charset=utf-8", build_mission_html(text).encode("utf-8")

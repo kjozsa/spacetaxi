@@ -128,6 +128,9 @@ show those of the current wave's map.
 
 The facilitator's timeline and pit stops are in [docs/agenda.md](docs/agenda.md).
 
+Open the intro slides at `http://HOST:8000/slides` (reveal.js from [docs/slides/intro.html](docs/slides/intro.html),
+the server's address filled in; arrows or Space page through, `S` opens the speaker notes).
+
 Hand out the participant card: `http://HOST:8000/card` (from
 [docs/participant-card.md](docs/participant-card.md), with the server's real address filled in;
 `serve` prints the URL) has the server's URLs, the milestones, the points and a first prompt. Put

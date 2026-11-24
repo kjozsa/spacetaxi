@@ -157,3 +157,21 @@ def test_server_serves_the_mission_page_with_its_address():
     assert 'href="/mission"' in card and "http://10.0.0.7:8000/mission" in card
     assert card.index("/mission") < card.index("<h2>")
     assert 'href="/mission"' in server.http("/standings")[2].decode("utf-8")
+
+
+def test_server_serves_the_slides_self_contained_with_its_address():
+    async def main():
+        server = ArenaServer({"cavern": load_map("cavern")}, Rules(), 60, seed=1,
+                             benchmarks={"cavern": {"greedy": 1, "pilot": 1}})
+        srv = await server.start("127.0.0.1", 0)
+        port = srv.sockets[0].getsockname()[1]
+        page = await asyncio.to_thread(get, port, "/slides")
+        srv.close()
+        return port, page
+
+    port, (kind, html) = asyncio.run(main())
+    assert kind.startswith("text/html")
+    assert "HOST:8000" not in html and f"ws://127.0.0.1:{port}/bot" in html
+    assert "../../src/" not in html and 'src="img/' not in html
+    assert "data:font/ttf;base64," in html
+    assert 'src="data:image/jpeg;base64,' in html and 'src="data:image/png;base64,' in html
