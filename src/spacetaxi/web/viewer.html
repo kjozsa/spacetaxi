@@ -74,22 +74,38 @@ body.live #bar { justify-content: flex-end; }
 #splash .queue:empty { display: none; }
 #splash .nextmap { font-size: 28px; color: #2ef2ff; text-shadow: 0 0 10px #2ef2ff; }
 #splash .nextmap:empty { display: none; }
+/* The plan of the next wave on the splash: one column per arena, then the waitlist. */
+#splash .plan { display: flex; flex-direction: column; align-items: center; gap: 22px; }
+#splash .plan:empty { display: none; }
+#splash .plan .head { font-size: 28px; color: #ffd23f; text-shadow: 0 0 10px #ffd23f; }
+#splash .plan .cols { display: flex; gap: 56px; align-items: flex-start; }
+#splash .plan .col { display: flex; flex-direction: column; gap: 10px; min-width: 260px; text-align: left; }
+#splash .plan .col b { font-weight: normal; font-size: 18px; color: #ff3df0; text-shadow: 0 0 8px #ff3df0; }
+#splash .plan .col span { font-size: 20px; color: #2ef2ff; }
+#splash .plan .wait { font-size: 16px; color: var(--muted); max-width: 1500px; line-height: 1.6; }
 #lb {
   position: absolute; right: 0; top: 120px; bottom: 72px; width: 420px; box-sizing: border-box;
   padding: 28px 24px; background: rgba(7,5,15,.78); border-left: 2px solid #7a5cff;
-  font-family: var(--font); overflow: hidden;
+  font-family: var(--font); overflow: hidden; display: flex; flex-direction: column;
 }
 #lb[hidden] { display: none; }
 #lb h2 { margin: 0 0 8px; font-size: 22px; font-weight: normal; color: #ffd23f; text-shadow: 0 0 10px #ffd23f; }
 #lb .sub { font-size: 12px; color: var(--muted); margin-bottom: 24px; }
-#lb ol { list-style: none; margin: 0; padding: 0; }
-#lb li { display: flex; gap: 12px; font-size: 16px; line-height: 1; padding: 11px 0; border-bottom: 1px solid var(--line); }
+#lb ol { list-style: none; margin: 0; padding: 0; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+/* every name shows: with many rows, viewer.js shrinks --fs and --pad until they all fit */
+#lb li { display: flex; gap: 12px; font-size: var(--fs, 16px); line-height: 1; padding: var(--pad, 11px) 0; border-bottom: 1px solid var(--line); }
+/* The compact plan of the next wave under the leaderboard: one line per arena, one for the waitlist. */
+#lbNext { flex: none; margin-top: 14px; padding-top: 12px; border-top: 2px solid #7a5cff; font-size: 11px; line-height: 1.5; }
+#lbNext:empty { display: none; }
+#lbNext div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #2ef2ff; }
+#lbNext .head { color: #ffd23f; margin-bottom: 4px; }
+#lbNext .wait { color: var(--muted); }
 #lb li.empty { color: var(--muted); font-size: 12px; line-height: 1.6; border-bottom: none; }
 #lb li .rank { color: var(--muted); min-width: 36px; }
 #lb li .name { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #2ef2ff; }
 #lb li .avg { color: #ffffff; font-variant-numeric: tabular-nums; }
 #lb li:first-child .name { color: #ffd23f; }
-#lb li .tag, #lb li .human, #lb li .house { font-size: 10px; align-self: center; color: #04030b; background: #ffffff; padding: 3px 4px; }
+#lb li .tag, #lb li .human, #lb li .house { font-size: min(10px, var(--fs, 16px)); align-self: center; color: #04030b; background: #ffffff; padding: 0.3em 4px; }
 /* Milestone pop-ups on /watch, at the top of the arena, above the splash. */
 #toasts {
   position: absolute; left: 0; width: 1500px; top: 140px; z-index: 6; pointer-events: none;
@@ -172,6 +188,7 @@ body.fly #bar { justify-content: flex-end; }
     <span class="coin">INSERT COIN &mdash; CLICK TO START</span>
     <span class="queue" id="queue"></span>
     <span class="nextmap" id="nextMap"></span>
+    <span class="plan" id="plan"></span>
     <span class="hint">SPACE PLAY/PAUSE &middot; 1-4 SPEED &middot; C SCREEN &middot; M OR SOUND BUTTON MUTE &middot; D DEBUG</span>
   </button>
   <div id="toasts" aria-live="polite"></div>
@@ -179,6 +196,7 @@ body.fly #bar { justify-content: flex-end; }
     <h2>LEADERBOARD</h2>
     <div class="sub" id="lbSub">AVG $ PER ROUND</div>
     <ol id="lbRows"></ol>
+    <div id="lbNext"></div>
   </aside>
   <div id="bar" role="group" aria-label="Playback">
     <button id="play" title="play / pause (space)">PLAY</button>

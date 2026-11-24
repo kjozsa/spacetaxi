@@ -10,7 +10,8 @@ WebSocket `ws://HOST:PORT/bot`, one JSON object per text frame.
 
 1. Send `{"type": "hello", "name": "yourname", "protocol": 1}` (name: 1-12 of `A-Z a-z 0-9 _ -`).
    Names ignore case: the first spelling seen keeps the name, so reconnect with the same one.
-2. You get `welcome`, then `queued` while you wait for a round.
+2. You get `welcome`, then `queued` while you wait for a round: your place in the plan of the
+   next wave and `starts_in`, the seconds until the wave you are planned into starts.
 3. A round starts with `round_start`: the map (rows of text), the pads and the rules.
 4. Then every 100 ms a `tick` with the state of all taxis and waiting passengers. Answer each
    one quickly (within 75 ms) with a move for that tick:

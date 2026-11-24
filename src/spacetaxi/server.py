@@ -1,15 +1,17 @@
 """The arena server: bots connect over WebSocket and fly live rounds of up to 4 taxis.
 
-A bot says `hello` on `/bot`, gets `welcome` and waits in one queue (`queued` tells it its
-place and `starts_in`, the seconds until its round starts). Rounds run in waves: a wave starts
-`fill_seconds` after the first bot joins an idle server, and again `fill_seconds` after every
-arena of the previous wave has ended (the pause for the podium and the leaderboard). At wave
-start the waiting bots are dealt into up to `max_arenas` arenas of at most 4, as even as
-possible (7 bots play 4 and 3, 6 play 3 and 3); bots beyond that wait for the next wave. The
+A bot says `hello` on `/bot`, gets `welcome` and waits (`queued` tells it its place in the plan
+of the next wave and `starts_in`, the seconds until its wave starts). Rounds run in waves: a
+wave starts `fill_seconds` after the first bot joins an idle server, and again `fill_seconds`
+after every arena of the previous wave has ended (the pause for the podium and the leaderboard).
+The next wave is planned early: when a wave starts, every connected bot is dealt into up to
+`max_arenas` arenas of at most 4, as even as possible (7 bots play 4 and 3, 6 play 3 and 3),
+the ones sitting the current wave out first; bots beyond that wait on the plan's waitlist. The
 deal is a seeded shuffle that prefers bots who have met least so far and avoids repeating a
-group of the previous wave, so groups mix and the leaderboard compares like with like. A bot
-that joins mid-wave plays from the next wave; after `round_end` every bot of the round that is
-still connected goes back to the end of the queue. Names ignore case: the first spelling seen
+group of the previous wave, so groups mix and the leaderboard compares like with like. On an
+idle server the plan starts with the first join. Joins and leaves change the plan as little as
+they can (`rebalance`), and the next wave plays exactly as planned; after `round_end` every bot
+of the round that is still connected waits again. Names ignore case: the first spelling seen
 (connected, or in the standings or the leaderboard) keeps the name, and a `hello` with another
 spelling of it gets `name_taken` naming that spelling; the server never renames a bot.
 
@@ -382,6 +384,10 @@ class ArenaServer:
         self.wave = 0
         self.wave_t0 = 0  # perf_counter_ns when the running wave's clock started
         self.next_wave_ns: int | None = None  # when the next wave starts; None while a wave runs
+        # the plan of the next wave: its arenas (names) and its waitlist, every connected bot
+        self.plan_arenas: list[list[str]] = []
+        self.plan_waitlist: list[str] = []
+        self.said_plan = ""  # the plan as last printed
         self.met: dict[frozenset, int] = {}  # rounds each pair of names has shared
         self.last_groups: set[frozenset] = set()  # the previous wave's groups
         self.standings = Standings(standings)
@@ -430,6 +436,7 @@ class ArenaServer:
             if name not in self.maps:
                 return f"unknown map {name!r}; maps: {', '.join(self.maps)}"
             self.next_map = name
+            self.plan_changed()
             return f"next wave: {name}"
         return "commands: map NAME (the next wave's map), maps (list them)"
 
@@ -447,8 +454,13 @@ class ArenaServer:
                     "wave": self.wave, "next_map": self.next_map,
                     "connected": len(self.bots), "waiting": len(self.queue),
                     "arenas": sorted([{"round": a.number, "arena": a.slot, "players": a.names,
-                                       "tick": a.playing} for a in self.arenas],
-                                     key=lambda a: a["round"])}
+                                       "tick": a.playing, "ends_in": self.seconds(self.wave_t0 + self.round_ns())}
+                                      for a in self.arenas],
+                                     key=lambda a: a["round"]),
+                    "next_wave": {"wave": self.wave + 1, "map": self.next_map,
+                                  "starts_in": self.seconds(self.next_wave_at()),
+                                  "arenas": [list(g) for g in self.plan_arenas],
+                                  "waitlist": list(self.plan_waitlist)}}
             return 200, "application/json", json.dumps(data).encode("utf-8")
         if path == "/standings":
             if self.standings_page is None:
@@ -547,44 +559,127 @@ class ArenaServer:
             self.award(milestone, [(p[3], p[4]) for p in ready
                                    if p[1] == tick and p[2] == milestone])
 
-    # --- the queue and the waves
+    # --- the queue, the plan of the next wave and the waves
 
     def enqueue(self, bot: Bot) -> None:
         bot.told = None
         self.queue.append(bot)
         if self.next_wave_ns is None and not self.arenas:
             self.next_wave_ns = time.perf_counter_ns() + self.fill_ns
+        self.plan_join(bot.name)
         self.fill()
         self.tell_positions()  # every bot hears `queued`, even one whose round starts now
 
     def round_ns(self) -> int:
         return (self.rules.round_ticks + 1) * self.rules.tick_ms * 1_000_000
 
-    def tell_positions(self) -> None:
-        """Send `queued` to every waiting bot whose place or start time changed."""
-        waiting = len(self.queue)
-        now = time.perf_counter_ns()
+    def next_wave_at(self) -> int | None:
+        """perf_counter_ns when the next wave starts (an estimate while a wave runs: a pause
+        after its rounds end); None on an idle server."""
         if self.next_wave_ns is not None:
-            first = self.next_wave_ns
-        else:  # a wave is running: the next starts a pause after its rounds end
-            first = self.wave_t0 + self.round_ns() + self.fill_ns
-        per_wave = ARENA_SIZE * self.max_arenas
-        for i, bot in enumerate(self.queue, 1):
-            at = first + (i - 1) // per_wave * (self.round_ns() + self.fill_ns)
-            starts_in = max(0, -(-(at - now) // 1_000_000_000))
-            told = (i, waiting, starts_in)
+            return self.next_wave_ns
+        if self.arenas:
+            return self.wave_t0 + self.round_ns() + self.fill_ns
+        return None
+
+    @staticmethod
+    def seconds(at: int | None) -> int | None:
+        """Whole seconds from now until `at` (perf_counter_ns), rounded up, at least 0."""
+        if at is None:
+            return None
+        return max(0, -(-(at - time.perf_counter_ns()) // 1_000_000_000))
+
+    # The plan: the next wave's arenas and waitlist, made from every connected bot when a wave
+    # starts (and from the first join on an idle server), then changed only by joins and leaves.
+
+    def plan_order(self) -> list[str]:
+        """The plan's names in order: the next wave's arenas first, then the waitlist."""
+        return [n for g in self.plan_arenas for n in g] + self.plan_waitlist
+
+    def replan(self, names: list[str]) -> None:
+        """A new plan from `names`, the first ones seated first: dealt as a wave (`deal`), the
+        names beyond its seats wait in order."""
+        self.plan_arenas = self.deal(names)
+        seated = {n for g in self.plan_arenas for n in g}
+        self.plan_waitlist = [n for n in names if n not in seated]
+        self.plan_changed()
+
+    def plan_join(self, name: str) -> None:
+        """A joiner takes a free seat, or the end of the waitlist."""
+        self.plan_waitlist.append(name)
+        self.rebalance()
+
+    def plan_leave(self, name: str) -> None:
+        """A leaver's seat goes to the first on the waitlist."""
+        for g in self.plan_arenas:
+            if name in g:
+                g.remove(name)
+        if name in self.plan_waitlist:
+            self.plan_waitlist.remove(name)
+        self.rebalance()
+
+    def rebalance(self) -> None:
+        """Fit the plan to `group_sizes` of its names, moving as few as possible: the arenas
+        get the sizes largest to largest, an arena over its size gives up its last names, and
+        free seats are filled by those first, then from the head of the waitlist."""
+        arenas = [list(g) for g in self.plan_arenas]
+        sizes = group_sizes(len(self.plan_order()), self.max_arenas)
+        target = [0] * len(arenas)
+        for rank, i in enumerate(sorted(range(len(arenas)), key=lambda i: -len(arenas[i]))):
+            target[i] = sizes[rank] if rank < len(sizes) else 0
+        for size in sizes[len(arenas):]:
+            arenas.append([])
+            target.append(size)
+        pool = []
+        for g, size in zip(arenas, target):
+            while len(g) > size:
+                pool.append(g.pop())
+        pool += self.plan_waitlist
+        for g, size in zip(arenas, target):
+            while len(g) < size:
+                g.append(pool.pop(0))
+        self.plan_arenas = [g for g in arenas if g]
+        self.plan_waitlist = pool
+        self.plan_changed()
+
+    def plan_changed(self) -> None:
+        """Print the plan when it differs from the one printed last."""
+        if not self.plan_arenas:
+            return
+        text = (f"next wave {self.wave + 1} on {self.next_map}: "
+                + " | ".join(", ".join(g) for g in self.plan_arenas))
+        if self.plan_waitlist:
+            text += "  waiting: " + ", ".join(self.plan_waitlist)
+        if text != self.said_plan:
+            self.said_plan = text
+            self.say(text)
+
+    def tell_positions(self) -> None:
+        """Send `queued` to every waiting bot whose place or start time changed: its place in
+        the plan, the plan's size and the start of the wave it is planned into."""
+        order = self.plan_order()
+        first = self.next_wave_at()
+        if first is None:
+            return
+        place = {name: i for i, name in enumerate(order, 1)}
+        seats = sum(len(g) for g in self.plan_arenas)
+        period = self.round_ns() + self.fill_ns
+        for bot in self.queue:
+            i = place[bot.name]
+            later = 0 if i <= seats else 1 + (i - seats - 1) // seats
+            told = (i, len(order), self.seconds(first + later * period))
             if bot.told != told:
                 bot.told = told
-                bot.send({"type": "queued", "position": i, "waiting": waiting,
-                          "starts_in": starts_in})
+                bot.send({"type": "queued", "position": told[0], "waiting": told[1],
+                          "starts_in": told[2]})
 
     def deal(self, names: list[str]) -> list[list[str]]:
-        """Split `names` into the wave's groups (`group_sizes`; names beyond them are left
-        out, they wait): of `DEAL_TRIES` seeded shuffles, the one whose groups repeat fewest of the
+        """Split `names` into a wave's groups (`group_sizes`; names beyond them are left out,
+        they wait): of `DEAL_TRIES` seeded shuffles, the one whose groups repeat fewest of the
         previous wave's groups, then hold the most pairs who never met, then the fewest past
-        meetings. Counts the new meetings."""
+        meetings."""
         sizes = group_sizes(len(names), self.max_arenas)
-        names = names[:sum(sizes)]  # the longest waiting play
+        names = names[:sum(sizes)]  # the first ones play
         best, best_cost = None, None
         for _ in range(DEAL_TRIES):
             order = sorted(names)  # the shuffle depends on the seed, not on the queue order
@@ -599,25 +694,26 @@ class ArenaServer:
             cost = (repeats, -met.count(0), sum(met))
             if best_cost is None or cost < best_cost:
                 best, best_cost = groups, cost
-        for g in best:
-            for pair in itertools.combinations(g, 2):
-                key = frozenset(pair)
-                self.met[key] = self.met.get(key, 0) + 1
-        self.last_groups = {frozenset(g) for g in best}
         return best
 
     def fill(self) -> None:
-        """Start the next wave when it is due: every waiting bot (up to the arenas' room) is
-        dealt into arenas that all start on one clock."""
+        """Start the next wave when it is due, exactly as planned: its arenas start on one
+        clock, then the plan of the wave after is made from every connected bot, the ones
+        that sit this wave out seated first."""
         self.queue = [b for b in self.queue if b.connected]
         if self.next_wave_ns is None or time.perf_counter_ns() < self.next_wave_ns:
             return
-        if not self.queue:
+        groups = self.plan_arenas
+        if not groups:
             self.next_wave_ns = None
             return
-        by_name = {b.name: b for b in self.queue}
-        groups = self.deal([b.name for b in self.queue])
+        for g in groups:
+            for pair in itertools.combinations(g, 2):
+                key = frozenset(pair)
+                self.met[key] = self.met.get(key, 0) + 1
+        self.last_groups = {frozenset(g) for g in groups}
         dealt = {name for g in groups for name in g}
+        sitters = list(self.plan_waitlist)
         self.queue = [b for b in self.queue if b.name not in dealt]
         self.wave += 1
         self.next_wave_ns = None
@@ -627,7 +723,7 @@ class ArenaServer:
         arenas = []
         for slot, group in enumerate(groups, 1):
             self.rounds += 1
-            arena = Arena(self, self.rounds, [by_name[n] for n in group],
+            arena = Arena(self, self.rounds, [self.bots[n] for n in group],
                           self.rng.getrandbits(63), slot, self.wave)
             self.arenas.add(arena)
             arenas.append(arena)
@@ -635,6 +731,7 @@ class ArenaServer:
         self.wave_t0 = time.perf_counter_ns()
         for arena in arenas:  # every round_start goes out now, before any arena's first tick
             self._spawn(self.play(arena, self.wave_t0))
+        self.replan(sitters + [n for g in groups for n in g])
         self.tell_positions()
 
     async def scheduler(self) -> None:
@@ -663,7 +760,8 @@ class ArenaServer:
                     self.queue.append(bot)
             self.queue = [b for b in self.queue if b.connected]
             if not self.arenas:  # the wave is over: the next one after the pause
-                self.next_wave_ns = time.perf_counter_ns() + self.fill_ns if self.queue else None
+                self.next_wave_ns = (time.perf_counter_ns() + self.fill_ns
+                                     if self.plan_arenas else None)
             self.tell_positions()
             self.fill()
 
@@ -750,7 +848,8 @@ class ArenaServer:
                 del self.bots[name]
             if bot in self.queue:
                 self.queue.remove(bot)
-                self.tell_positions()
+            self.plan_leave(name)
+            self.tell_positions()
             self.say(f"- {name} left")
 
 

@@ -11,7 +11,7 @@ import time
 
 from spacetaxi import ws
 from spacetaxi.maps import load_map
-from spacetaxi.server import ArenaServer, Leaderboard, group_sizes
+from spacetaxi.server import ArenaServer, Bot, Leaderboard, group_sizes
 from spacetaxi.show import load_replay
 from spacetaxi.sim import Rules
 from spacetaxi.viewer import build_html
@@ -173,9 +173,10 @@ def test_a_bot_joining_mid_wave_plays_from_the_next_wave():
 
     welcome, queued, joined_wave, (early, late) = asyncio.run(main())
     assert welcome["type"] == "welcome"
-    # round 1 has ~17 ticks of 50 ms left, then the 0.1 s pause: it starts within 2 s
+    # round 1 has ~17 ticks of 50 ms left, then the 0.1 s pause: it starts within 2 s; the
+    # plan of wave 2 has early (playing now) first, then late in the free seat
     assert {k: v for k, v in queued.items() if k != "starts_in"} == {
-        "type": "queued", "position": 1, "waiting": 1}
+        "type": "queued", "position": 2, "waiting": 2}
     assert 1 <= queued["starts_in"] <= 2
     assert joined_wave == 1
     assert late["start"]["round"] == 2 and sorted(late["start"]["players"]) == ["early", "late"]
@@ -557,3 +558,112 @@ def test_house_names_ignore_case():
     server = asyncio.run(main())
     assert "ace" not in server.standings.awards
     assert Leaderboard(["ACE"]).house == {"ace"}
+
+
+# --- the plan of the next wave
+
+def seats(server) -> dict[str, int]:
+    """Each planned name's arena (1-based) in the plan."""
+    return {n: i for i, g in enumerate(server.plan_arenas, 1) for n in g}
+
+
+def test_the_plan_seats_the_sitters_out_first_and_only_joins_and_leaves_change_it():
+    lines = []
+    server = make_server(say=lines.append)
+    playing = [f"p{i}" for i in range(12)]
+    server.last_groups = {frozenset(playing[i:i + 4]) for i in (0, 4, 8)}
+    server.replan(["s1", "s2", *playing])  # wave start: the 2 who sat out first
+    assert [len(g) for g in server.plan_arenas] == [4, 4, 4]
+    assert {"s1", "s2"} <= set(seats(server))
+    assert len(server.plan_waitlist) == 2 and set(server.plan_waitlist) <= set(playing)
+    before, waitlist = seats(server), list(server.plan_waitlist)
+
+    server.plan_join("third")  # a third joiner waits at the end
+    assert seats(server) == before and server.plan_waitlist == [*waitlist, "third"]
+
+    leaver = server.plan_arenas[1][2]  # a planned bot leaves: the first waiting takes its seat
+    server.plan_leave(leaver)
+    after = seats(server)
+    assert after[waitlist[0]] == 2
+    assert {n: a for n, a in after.items() if n != waitlist[0]} == {
+        n: a for n, a in before.items() if n != leaver}
+    assert server.plan_waitlist == [waitlist[1], "third"]
+    assert lines[-1] == ("next wave 1 on cavern: "
+                         + " | ".join(", ".join(g) for g in server.plan_arenas)
+                         + f"  waiting: {waitlist[1]}, third")
+
+
+def test_a_fifth_join_opens_a_second_arena_moving_exactly_one_bot():
+    server = make_server()
+    for name in "abcd":
+        server.plan_join(name)
+    assert server.plan_arenas == [["a", "b", "c", "d"]] and server.plan_waitlist == []
+    server.plan_join("e")
+    assert [len(g) for g in server.plan_arenas] == [3, 2]
+    moved = [n for n in "abcd" if seats(server)[n] != 1]
+    assert len(moved) == 1 and "e" in server.plan_arenas[1]
+    server.plan_leave("e")  # back to 4: one arena again
+    assert [sorted(g) for g in server.plan_arenas] == [["a", "b", "c", "d"]]
+
+
+class FakeSock:
+    peer = "test"
+
+    async def send(self, text):
+        pass
+
+
+def test_the_wave_that_starts_is_the_plan_as_it_stands():
+    async def main():
+        server = make_server(fill_seconds=1000)
+        for i in range(14):
+            bot = Bot(f"b{i}", FakeSock())
+            server.bots[bot.name] = bot
+            server.enqueue(bot)
+        server.plan_leave("b3")  # changes after the plan was made are played too
+        del server.bots["b3"]
+        server.queue = [b for b in server.queue if b.name != "b3"]
+        plan, waitlist = [list(g) for g in server.plan_arenas], list(server.plan_waitlist)
+        server.next_wave_ns = 0
+        server.fill()
+        arenas = [a.names for a in sorted(server.arenas, key=lambda a: a.slot)]
+        queued = sorted(b.name for b in server.queue)
+        nxt = set(seats(server))
+        for task in list(server.tasks):
+            task.cancel()
+        await asyncio.gather(*server.tasks, return_exceptions=True)
+        for bot in server.bots.values():
+            await bot.stop()
+        return plan, waitlist, arenas, queued, nxt
+
+    plan, waitlist, arenas, queued, nxt = asyncio.run(main())
+    assert arenas == plan and queued == sorted(waitlist) and len(waitlist) == 1
+    assert waitlist[0] in nxt  # the one who sits out is seated first in the next plan
+
+
+def test_leaderboard_json_has_the_next_wave_during_and_between_waves():
+    async def main():
+        server = make_server(fill_seconds=0.3)
+        srv, port = await start(server)
+        socks = [await join(port, f"bot{i}") for i in range(5)]
+        while server.next_wave_ns is None or len(server.plan_order()) < 5:
+            await asyncio.sleep(0.01)
+        between = json.loads(server.http("/leaderboard.json")[2])
+        while not server.arenas:
+            await asyncio.sleep(0.01)
+        during = json.loads(server.http("/leaderboard.json")[2])
+        for s in socks:
+            await s.close()
+        srv.close()
+        return between, during
+
+    between, during = asyncio.run(main())
+    nw = between["next_wave"]
+    assert nw["wave"] == 1 and nw["map"] == "cavern" and nw["waitlist"] == []
+    assert sorted(len(g) for g in nw["arenas"]) == [2, 3] and nw["starts_in"] in (0, 1)
+    nw = during["next_wave"]
+    assert nw["wave"] == 2 and nw["map"] == "cavern"
+    assert sorted(n for g in nw["arenas"] for n in g) == [f"bot{i}" for i in range(5)]
+    # the round (21 ticks of 50 ms) and the 0.3 s pause: about 1.35 s
+    assert nw["starts_in"] in (1, 2)
+    assert all(a["ends_in"] in (0, 1, 2) for a in during["arenas"])
