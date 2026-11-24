@@ -22,6 +22,8 @@
 }
 html, body, .reveal-viewport { background: var(--bg); }
 .reveal { font-family: var(--body); font-size: 34px; color: var(--fg); }
+/* served at /slides: the deck sits above the server's page bar (spacetaxi.nav's --sitenav-h) */
+.reveal { height: calc(100% - var(--sitenav-h, 0px)); }
 .reveal .slides { text-align: left; }
 .reveal h1, .reveal h2 {
   font-family: var(--pixel); font-weight: normal; text-transform: none; line-height: 1.35;

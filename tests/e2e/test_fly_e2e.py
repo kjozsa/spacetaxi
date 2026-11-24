@@ -85,7 +85,9 @@ def test_fly_by_hand_against_a_bot(browser, arena):
     assert s["lastMove"]["ax"] == 0 and s["lastMove"]["ay"] == 0
     players = page.evaluate("window.spacetaxi.you")
     assert players >= 0
-    # Hold the main engine for a few ticks: the taxi climbs, vy < 0.
+    # Hold the main engine for a few ticks: the taxi climbs, vy < 0. The arrows fly even with
+    # a link of the page bar focused.
+    page.focus('nav.sitenav a[href="/watch"]')
     page.keyboard.down("ArrowUp")
     page.wait_for_function("window.spacetaxi.lastMove.ay === -1 && window.spacetaxi.me.vy < 0",
                            timeout=3000)

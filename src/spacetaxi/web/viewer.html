@@ -164,9 +164,9 @@ body.fly #bar { justify-content: flex-end; }
 #results th, #results td { padding: 8px 10px; text-align: right; white-space: nowrap; }
 #results td:nth-child(-n+2), #results th:nth-child(-n+2) { text-align: left; }
 #results tr.you td { color: #2ef2ff; }
-#leave { position: fixed; left: 50%; transform: translateX(-50%); bottom: max(12px, env(safe-area-inset-bottom, 0px)); z-index: 7; cursor: pointer; font-size: clamp(10px, 1.4vw, 16px); }
+#leave { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--sitenav-h, 0px) + max(12px, env(safe-area-inset-bottom, 0px))); z-index: 7; cursor: pointer; font-size: clamp(10px, 1.4vw, 16px); }
 #touch {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; display: flex; justify-content: space-between;
+  position: fixed; left: 0; right: 0; bottom: var(--sitenav-h, 0px); z-index: 6; display: flex; justify-content: space-between;
   padding: 0 max(12px, env(safe-area-inset-left, 0px)) max(12px, env(safe-area-inset-bottom, 0px));
   pointer-events: none;
 }
@@ -177,6 +177,15 @@ body.fly #bar { justify-content: flex-end; }
 }
 #touch button.on { background: #7a5cff; }
 @media (hover: hover) and (pointer: fine) { #touch { display: none; } }
+/* /watch: the links to the server's other pages, in the bar (spacetaxi.nav); they fade out
+   after 3 s without mouse movement so they don't distract on the projector. z-index 6 lifts them
+   above the INSERT COIN splash (z-index 5), which covers the bar, so they work before the click. */
+#bar .barnav { position: relative; z-index: 6; display: flex; gap: 6px; margin-right: auto; min-width: 0; overflow: hidden; transition: opacity .6s; }
+#bar .barnav.idle { opacity: 0; pointer-events: none; }
+#bar .barnav a { flex: none; font: 14px var(--font); color: var(--muted); text-decoration: none; padding: 10px 10px; border: 2px solid transparent; }
+#bar .barnav a:hover { color: #2ef2ff; text-shadow: 0 0 8px #2ef2ff; }
+#bar .barnav a[aria-current="page"] { color: #120f00; background: var(--accent); border-color: var(--accent); }
+#bar .barnav a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 #tickLabel { font-size: 16px; color: var(--muted); min-width: 250px; text-align: right; font-variant-numeric: tabular-nums; }
 </style>
 <body data-mode="/*MODE*/">
@@ -199,6 +208,7 @@ body.fly #bar { justify-content: flex-end; }
     <div id="lbNext"></div>
   </aside>
   <div id="bar" role="group" aria-label="Playback">
+    <!--NAV-->
     <button id="play" title="play / pause (space)">PLAY</button>
     <button data-speed="0.5" title="key 1">0.5&times;</button>
     <button data-speed="1" title="key 2">1&times;</button>

@@ -10,6 +10,7 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from spacetaxi.nav import PLACEHOLDER
 from spacetaxi.show import load_replay
 from spacetaxi.sim import Rules
 
@@ -151,6 +152,8 @@ def page(rounds: list[dict], mode: str) -> str:
     font = base64.b64encode((WEB_DIR / "PressStart2P-Regular.ttf").read_bytes()).decode("ascii")
     template = (WEB_DIR / "viewer.html").read_text(encoding="utf-8")
     script = (WEB_DIR / "viewer.js").read_text(encoding="utf-8")
+    if mode != "live":  # only /watch puts the page links into its own bar (spacetaxi.nav)
+        template = template.replace(PLACEHOLDER, "")
     return (template
             .replace("/*MODE*/", mode)
             .replace("/*FONT*/", font)
