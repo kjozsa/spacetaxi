@@ -235,13 +235,8 @@ class Arena:
         # this map's benchmarks as at round start: known ones count
         self.benchmarks = dict(server.map_benchmarks[self.map_name])
         self.stepped = 0  # the last tick played (round_ticks + 1 once the round has ended)
-        self.t0 = time.perf_counter_ns()  # the wave's clock, set again by run()
         for bot in bots:
             bot.arena = self
-
-    def end_ns(self) -> int:
-        """perf_counter_ns when the round ends (its last tick played)."""
-        return self.t0 + (self.rules.round_ticks + 1) * self.rules.tick_ms * 1_000_000
 
     def on_move(self, bot: Bot, move: dict, now: int) -> None:
         """A `move` from one of this arena's bots; kept only if it is the first valid, on-time
@@ -314,7 +309,6 @@ class Arena:
             tick_ns = rules.tick_ms * 1_000_000
             if t0 is None:
                 t0 = time.perf_counter_ns()
-            self.t0 = t0
             state = None
             for k in range(1, rules.round_ticks + 2):
                 delay = t0 + k * tick_ns - time.perf_counter_ns()
@@ -460,7 +454,7 @@ class ArenaServer:
                     "wave": self.wave, "next_map": self.next_map,
                     "connected": len(self.bots), "waiting": len(self.queue),
                     "arenas": sorted([{"round": a.number, "arena": a.slot, "players": a.names,
-                                       "tick": a.playing, "ends_in": self.seconds(a.end_ns())}
+                                       "tick": a.playing, "ends_in": self.seconds(self.wave_t0 + self.round_ns())}
                                       for a in self.arenas],
                                      key=lambda a: a["round"]),
                     "next_wave": {"wave": self.wave + 1, "map": self.next_map,
@@ -668,12 +662,10 @@ class ArenaServer:
         if first is None:
             return
         place = {name: i for i, name in enumerate(order, 1)}
-        seats = sum(len(g) for g in self.plan_arenas) or 1
+        seats = sum(len(g) for g in self.plan_arenas)
         period = self.round_ns() + self.fill_ns
         for bot in self.queue:
-            i = place.get(bot.name)
-            if i is None:
-                continue
+            i = place[bot.name]
             later = 0 if i <= seats else 1 + (i - seats - 1) // seats
             told = (i, len(order), self.seconds(first + later * period))
             if bot.told != told:
@@ -688,7 +680,7 @@ class ArenaServer:
         meetings."""
         sizes = group_sizes(len(names), self.max_arenas)
         names = names[:sum(sizes)]  # the first ones play
-        best, best_cost = [], None
+        best, best_cost = None, None
         for _ in range(DEAL_TRIES):
             order = sorted(names)  # the shuffle depends on the seed, not on the queue order
             self.rng.shuffle(order)
@@ -856,9 +848,8 @@ class ArenaServer:
                 del self.bots[name]
             if bot in self.queue:
                 self.queue.remove(bot)
-            if name in self.plan_order():
-                self.plan_leave(name)
-                self.tell_positions()
+            self.plan_leave(name)
+            self.tell_positions()
             self.say(f"- {name} left")
 
 

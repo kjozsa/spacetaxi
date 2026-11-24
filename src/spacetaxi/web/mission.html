@@ -292,22 +292,20 @@ function whereText() {
   const b = st.board, key = st.name.toLowerCase();
   if (!b) return "";
   const has = names => names.findIndex(n => n.toLowerCase() === key);
-  const now = (b.arenas || []).find(a => has(a.players) >= 0);
+  const now = b.arenas.find(a => has(a.players) >= 0);
   if (now) return `NOW: arena ${now.arena}, round ends in ${now.ends_in} s`;
   const next = b.next_wave;
-  if (next) {
-    const i = next.arenas.findIndex(names => has(names) >= 0);
-    const when = next.starts_in === null ? "" : ` \u2014 in ~${next.starts_in} s`;
-    if (i >= 0) {
-      const others = next.arenas[i].filter(n => n.toLowerCase() !== key);
-      return `NEXT: wave ${next.wave}, arena ${i + 1}`
-        + (others.length ? ` with ${others.join(", ")}` : "") + when;
-    }
-    const w = has(next.waitlist);
-    if (w >= 0) {
-      const seats = next.arenas.reduce((n, names) => n + names.length, 0) || 1;
-      return `WAITLIST #${w + 1}: plays in wave ${next.wave + 1 + Math.floor(w / seats)} at the latest`;
-    }
+  const i = next.arenas.findIndex(names => has(names) >= 0);
+  const when = next.starts_in === null ? "" : ` \u2014 in ~${next.starts_in} s`;
+  if (i >= 0) {
+    const others = next.arenas[i].filter(n => n.toLowerCase() !== key);
+    return `NEXT: wave ${next.wave}, arena ${i + 1}`
+      + (others.length ? ` with ${others.join(", ")}` : "") + when;
+  }
+  const w = has(next.waitlist);
+  if (w >= 0) {
+    const seats = next.arenas.reduce((n, names) => n + names.length, 0);
+    return `WAITLIST #${w + 1}: plays in wave ${next.wave + 1 + Math.floor(w / seats)} at the latest`;
   }
   return "not connected";
 }

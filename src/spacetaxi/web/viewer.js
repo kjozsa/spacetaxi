@@ -966,6 +966,7 @@ async function loadLeaderboard() {
     const li = document.createElement("li"); li.className = "empty";
     li.textContent = "WAITING FOR THE FIRST ROUND";
     lbRows.replaceChildren(li);
+    fitRows();
     return;
   }
   lbRows.replaceChildren(...data.leaderboard.map((r, n) => {
@@ -1000,14 +1001,14 @@ function fitRows() {
 const planEl = document.getElementById("plan"), lbNext = document.getElementById("lbNext");
 const plan = { data: null, at: 0 };
 function showPlan(next) {
-  plan.data = next || null;
+  plan.data = next;
   plan.at = performance.now();
   window.spacetaxi.nextWave = plan.data;
   const div = (cls, text) => {
     const el = document.createElement("div"); if (cls) el.className = cls; el.textContent = text;
     return el;
   };
-  if (!plan.data || !plan.data.arenas.length) {
+  if (!next.arenas.length) {
     planEl.replaceChildren();
     lbNext.replaceChildren();
     return;
@@ -1028,7 +1029,6 @@ function showPlan(next) {
     ...plan.data.arenas.map((names, i) => div("", `${i + 1}: ${names.map(n => n.toUpperCase()).join(", ")}`)),
     ...(wait ? [div("wait", `WAIT: ${wait}`)] : []));
   planClock();
-  fitRows();
 }
 
 function planClock() {
