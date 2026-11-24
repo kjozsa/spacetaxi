@@ -47,7 +47,8 @@ and sent to spectators as `milestone`. `/standings` is the projector page of the
 (`docs/participant-card.md`, `docs/brief.md`, rendered, with `address` filled in for HOST:PORT;
 `/brief.md` is the raw Markdown). `/mission` is each participant's own page: their next
 milestone only, from `docs/missions.md`, polling `/standings.json`. `/slides` is the intro deck
-(`docs/slides/intro.html`, self-contained, HOST:8000 filled in). The house bots' benchmarks
+(`docs/slides/intro.html`, self-contained, HOST:8000 filled in). Every HTML page has the
+page bar linking the others (`spacetaxi.nav`). The house bots' benchmarks
 are simulated in a thread at start, for every map, unless `benchmarks` gives them.
 
 The server can have several maps (`maps`, the first is the start map). `command` takes one line
@@ -72,6 +73,7 @@ from .milestones import (BENCHMARK_BOTS, BENCHMARK_ROUNDS, MILESTONES, POINTS, S
 from .milestones import benchmarks as simulate_benchmarks
 from .runner import check_move, clean_debug
 from .sim import Rules, World
+from .nav import with_nav
 from .viewer import (build_doc_html, build_fly_html, build_live_html, build_mission_html,
                      build_standings_html)
 
@@ -447,6 +449,15 @@ class ArenaServer:
         return doc_text(name).replace("HOST:PORT", self.address or "HOST:PORT")
 
     def http(self, path: str):
+        """The HTTP answer to GET `path`: (status, content type, body), or None. Every HTML page
+        gets the page bar (`spacetaxi.nav`)."""
+        reply = self._http(path)
+        if reply is not None and reply[1].startswith("text/html"):
+            current = "/" if path == "/index.html" else path
+            reply = (reply[0], reply[1], with_nav(reply[2].decode("utf-8"), current).encode("utf-8"))
+        return reply
+
+    def _http(self, path: str):
         if path in ("/", "/index.html"):
             return 200, "text/html; charset=utf-8", (WEB_DIR / "leaderboard.html").read_bytes()
         if path == "/leaderboard.json":

@@ -9,6 +9,7 @@
          font: 22px/1.4 system-ui, sans-serif; }
   h1 { font-size: 28px; margin: 0 0 4px; }
   #info, #arenas { color: #9aa3cc; margin-bottom: 16px; }
+  .scroll { overflow-x: auto; }  /* on a phone the table scrolls sideways, not the page */
   table { border-collapse: collapse; width: 100%; }
   th, td { padding: 6px 12px; border-bottom: 1px solid #2a3050; text-align: right;
            font-variant-numeric: tabular-nums; }
@@ -25,13 +26,13 @@
 <p><a href="/standings">milestone race standings &rarr;</a> &nbsp; <a href="/card">participant card &rarr;</a></p>
 <div id="info">waiting for the server ...</div>
 <div id="arenas"></div>
-<table>
+<div class="scroll"><table>
   <thead><tr>
     <th>#</th><th>name</th><th>rounds</th><th>total money</th><th>avg money</th>
     <th>deliveries</th><th>crashes</th><th>late %</th>
   </tr></thead>
   <tbody id="rows"></tbody>
-</table>
+</table></div>
 <script>
 "use strict";
 const COLS = ["name", "rounds", "total_money", "avg_money", "deliveries", "crashes", "late_pct"];

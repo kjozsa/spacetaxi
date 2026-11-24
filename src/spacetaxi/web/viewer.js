@@ -64,13 +64,17 @@ const stars = Array.from({ length: 260 }, (_, n) => {
 });
 
 // ---------- layout: 1920x1080, scaled to the window keeping proportions ----------
+// On /fly the server's page bar (spacetaxi.nav) sits at the bottom of the window: the stage fits above it.
 function fit() {
-  const s = Math.min(window.innerWidth / SW, window.innerHeight / SH);
+  const nav = document.querySelector("nav.sitenav");
+  const h = window.innerHeight - (nav ? nav.offsetHeight : 0);
+  const s = Math.min(window.innerWidth / SW, h / SH);
   stage.style.transform = `scale(${s})`;
   stage.style.left = `${(window.innerWidth - SW * s) / 2}px`;
-  stage.style.top = `${(window.innerHeight - SH * s) / 2}px`;
+  stage.style.top = `${(h - SH * s) / 2}px`;
 }
 window.addEventListener("resize", fit);
+window.addEventListener("DOMContentLoaded", fit);   // the page bar comes after this script
 
 // ---------- one round: layout and the static layer (walls, pads) ----------
 function prepareRound(data) {
@@ -1039,8 +1043,26 @@ function planClock() {
   lbNext.firstChild.textContent = `NEXT WAVE ${d.wave} \u00b7 ${map} \u00b7 ~${left} S`;
 }
 
+// /watch: the page links in the bar fade out after NAV_IDLE_MS without mouse movement or
+// touch, and come back on the next one.
+const NAV_IDLE_MS = 3000;
+function idleNav() {
+  const nav = document.querySelector("#bar .barnav");
+  if (!nav) return;
+  let timer = 0;
+  const wake = () => {
+    nav.classList.remove("idle");
+    clearTimeout(timer);
+    timer = setTimeout(() => nav.classList.add("idle"), NAV_IDLE_MS);
+  };
+  for (const ev of ["mousemove", "pointerdown", "touchstart"])
+    window.addEventListener(ev, wake, { passive: true });
+  wake();
+}
+
 function startLive() {
   document.body.classList.add("live");
+  idleNav();
   document.getElementById("lb").hidden = false;
   splash.querySelector(".hint").textContent = "C SCREEN \u00b7 M OR SOUND BUTTON MUTE \u00b7 D DEBUG";
   Object.assign(window.spacetaxi, { live: true, arena: 0, follow: true, running: [], idle: true,
