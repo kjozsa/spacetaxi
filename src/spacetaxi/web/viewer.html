@@ -178,7 +178,8 @@ body.fly #bar { justify-content: flex-end; }
 #touch button.on { background: #7a5cff; }
 @media (hover: hover) and (pointer: fine) { #touch { display: none; } }
 /* /watch: the links to the server's other pages, in the bar (spacetaxi.nav); they fade out
-   after 3 s without mouse movement so they don't distract on the projector. */
+   after 3 s without mouse movement so they don't distract on the projector. z-index 6 lifts them
+   above the INSERT COIN splash (z-index 5), which covers the bar, so they work before the click. */
 #bar .barnav { position: relative; z-index: 6; display: flex; gap: 6px; margin-right: auto; min-width: 0; overflow: hidden; transition: opacity .6s; }
 #bar .barnav.idle { opacity: 0; pointer-events: none; }
 #bar .barnav a { flex: none; font: 14px var(--font); color: var(--muted); text-decoration: none; padding: 10px 10px; border: 2px solid transparent; }

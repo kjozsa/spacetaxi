@@ -58,5 +58,5 @@ def with_nav(page: str, current: str) -> str:
                f'src: url(data:font/ttf;base64,{font}) format("truetype"); }}' + css)
     bar = (f'<style>{css}</style><div class="sitenav-space" aria-hidden="true"></div>'
            f'<nav class="sitenav" aria-label="Pages">{nav_links(current)}</nav>\n')
-    at = page.rfind("</body>")
-    return page[:at] + bar + page[at:] if at >= 0 else page + bar
+    at = page.rindex("</body>")
+    return page[:at] + bar + page[at:]

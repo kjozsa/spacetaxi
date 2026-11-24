@@ -47,7 +47,7 @@ def test_watch_puts_the_links_into_its_own_bar():
     assert '<nav class="barnav"' in bar and 'id="sound"' in bar and 'id="tickLabel"' in bar
 
 
-def test_fly_and_the_slides_get_the_fixed_bar():
+def test_pages_other_than_watch_get_the_fixed_bar():
     s = server()
     for path in ("/fly", "/slides", "/", "/card"):
         page = s.http(path)[2].decode("utf-8")

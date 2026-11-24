@@ -71,9 +71,9 @@ from .maps import Map
 from .milestones import (BENCHMARK_BOTS, BENCHMARK_ROUNDS, MILESTONES, POINTS, Standings,
                          Tracker)
 from .milestones import benchmarks as simulate_benchmarks
+from .nav import with_nav
 from .runner import check_move, clean_debug
 from .sim import Rules, World
-from .nav import with_nav
 from .viewer import (build_doc_html, build_fly_html, build_live_html, build_mission_html,
                      build_standings_html)
 
@@ -399,6 +399,7 @@ class ArenaServer:
         for name, values in (benchmarks or {}).items():
             self.map_benchmarks[name].update(values)
         self.pending: list[tuple] = []  # (wave, tick, milestone, name, key) not yet scored
+        self.leaderboard_page: bytes | None = None
         self.standings_page: bytes | None = None
         self.slides_page: bytes | None = None
         self.address: str | None = None  # HOST:PORT for the card and brief; set by start()
@@ -450,16 +451,12 @@ class ArenaServer:
 
     def http(self, path: str):
         """The HTTP answer to GET `path`: (status, content type, body), or None. Every HTML page
-        gets the page bar (`spacetaxi.nav`)."""
-        reply = self._http(path)
-        if reply is not None and reply[1].startswith("text/html"):
-            current = "/" if path == "/index.html" else path
-            reply = (reply[0], reply[1], with_nav(reply[2].decode("utf-8"), current).encode("utf-8"))
-        return reply
-
-    def _http(self, path: str):
+        is built with the page bar (`spacetaxi.nav`)."""
         if path in ("/", "/index.html"):
-            return 200, "text/html; charset=utf-8", (WEB_DIR / "leaderboard.html").read_bytes()
+            if self.leaderboard_page is None:
+                page = (WEB_DIR / "leaderboard.html").read_text(encoding="utf-8")
+                self.leaderboard_page = with_nav(page, "/").encode("utf-8")
+            return 200, "text/html; charset=utf-8", self.leaderboard_page
         if path == "/leaderboard.json":
             data = {"leaderboard": self.leaderboard.table(), "rounds": self.rounds,
                     "wave": self.wave, "next_map": self.next_map,
@@ -475,7 +472,7 @@ class ArenaServer:
             return 200, "application/json", json.dumps(data).encode("utf-8")
         if path == "/standings":
             if self.standings_page is None:
-                self.standings_page = build_standings_html().encode("utf-8")
+                self.standings_page = with_nav(build_standings_html(), path).encode("utf-8")
             return 200, "text/html; charset=utf-8", self.standings_page
         if path == "/standings.json":
             data = {"standings": self.standings.table(self.house),
@@ -485,23 +482,24 @@ class ArenaServer:
             return 200, "application/json", json.dumps(data).encode("utf-8")
         if path == "/slides":
             if self.slides_page is None:
-                self.slides_page = build_slides_html(self.address or "HOST:8000").encode("utf-8")
+                page = build_slides_html(self.address or "HOST:8000")
+                self.slides_page = with_nav(page, path).encode("utf-8")
             return 200, "text/html; charset=utf-8", self.slides_page
         if path == "/mission":
             text = self.doc("missions.md")
-            return 200, "text/html; charset=utf-8", build_mission_html(text).encode("utf-8")
+            return 200, "text/html; charset=utf-8", with_nav(build_mission_html(text), path).encode("utf-8")
         if path in DOC_PAGES:
             name, title = DOC_PAGES[path]
             text = self.doc(name)
             if path.endswith(".md"):
                 return 200, "text/markdown; charset=utf-8", text.encode("utf-8")
-            return 200, "text/html; charset=utf-8", build_doc_html(text, title).encode("utf-8")
+            return 200, "text/html; charset=utf-8", with_nav(build_doc_html(text, title), path).encode("utf-8")
         if path in ("/watch", "/fly"):  # the empty map shown before a round: the next one
             pages, build = ((self.watch_pages, build_live_html) if path == "/watch"
                             else (self.fly_pages, build_fly_html))
             name = self.next_map
             if name not in pages:
-                pages[name] = build(self.maps[name], self.rules).encode("utf-8")
+                pages[name] = with_nav(build(self.maps[name], self.rules), path).encode("utf-8")
             return 200, "text/html; charset=utf-8", pages[name]
         return None
 
