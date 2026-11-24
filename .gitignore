@@ -13,3 +13,6 @@ build/
 
 # simulation replays and pages written by scripts/sim.fish
 out/
+
+# fair-use screenshot, not ours to redistribute; the slide falls back to Wikipedia
+docs/slides/img/spacetaxi-c64.jpg
