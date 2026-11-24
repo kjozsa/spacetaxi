@@ -81,22 +81,21 @@ table.kv td:first-child { color: var(--gold); white-space: nowrap; }
   <h2>The physics</h2>
   <div class="cols">
     <table class="kv">
-      <tr><td>tick</td><td>100 ms, 750 per round</td></tr>
-      <tr><td>cell</td><td>32 units, integers only</td></tr>
-      <tr><td>gravity</td><td><code>vy += 2</code> every tick</td></tr>
-      <tr><td>main engine</td><td><code>ay=-1</code>: <code>vy -= 4</code></td></tr>
-      <tr><td>side jets</td><td><code>ax=±1</code>: <code>vx ± 2</code></td></tr>
-      <tr><td>max speed</td><td>24 units / tick</td></tr>
+      <tr><td>tick</td><td>100 ms, a round is 75 s</td></tr>
+      <tr><td>gravity</td><td>pulls down, every tick</td></tr>
+      <tr><td>main engine</td><td><code>ay=-1</code>: push up</td></tr>
+      <tr><td>side jets</td><td><code>ax=±1</code>: push sideways</td></tr>
+      <tr><td>numbers</td><td>integers only, y grows down</td></tr>
     </table>
     <table class="kv">
-      <tr><td>soft landing</td><td><code>vy ≤ 8</code>, <code>|vx| ≤ 3</code></td></tr>
-      <tr><td>crash</td><td>wall or hard landing: -$25, 30 ticks out</td></tr>
-      <tr><td>fare</td><td>$50 + $2 per cell</td></tr>
-      <tr><td>passenger</td><td>gone after 300 ticks</td></tr>
-      <tr><td>taxis</td><td>ghosts, never collide</td></tr>
+      <tr><td>landing</td><td>touch a pad from above, slowly</td></tr>
+      <tr><td>crash</td><td>anything else: fine, time out</td></tr>
+      <tr><td>passengers</td><td>wait on pads, give up</td></tr>
+      <tr><td>fare</td><td>longer trips pay more</td></tr>
+      <tr><td>taxis</td><td>ghosts, pass through</td></tr>
     </table>
   </div>
-  <p class="small muted" style="margin-top:1em">Everything else: <code>http://HOST:8000/brief</code></p>
+  <p style="margin-top:1.2em">How slow is slow enough? <strong>That's your first experiment.</strong></p>
 </section>
 
 <section>
@@ -127,23 +126,26 @@ table.kv td:first-child { color: var(--gold); white-space: nowrap; }
 <section>
   <h2>Your bot</h2>
   <div class="cols">
-<pre><code><span class="c"># bot.py: no network code</span>
-<span class="k">def</span> welcome(info): ...  <span class="c"># once</span>
-<span class="k">def</span> start(info): ...    <span class="c"># each round: map</span>
-<span class="k">def</span> move(state):        <span class="c"># each tick</span>
-    <span class="k">return</span> {<span class="s">"ax"</span>: <span class="n">0</span>, <span class="s">"ay"</span>: <span class="n">-1</span>}</code></pre>
-<pre><code><span class="c"># start from a house bot</span>
-uv run spacetaxi new-bot bot.py
-
-<span class="c"># test offline: 100 rounds</span>
-uv run spacetaxi run \
-  --bots ./bot.py,pilot --rounds 100 --json
-
-<span class="c"># fly in the arena</span>
-uv run spacetaxi connect --bot bot.py \
-  --name YOU --server ws://HOST:8000/bot</code></pre>
+<pre><code><span class="c"># the shape of every bot</span>
+ws = connect(<span class="s">"ws://HOST:8000/bot"</span>)
+send({<span class="s">"type"</span>: <span class="s">"hello"</span>,
+      <span class="s">"name"</span>: <span class="s">"anna"</span>, <span class="s">"protocol"</span>: <span class="n">1</span>})
+<span class="k">for</span> msg <span class="k">in</span> ws:
+    <span class="k">if</span> msg[<span class="s">"type"</span>] == <span class="s">"round_start"</span>:
+        ...  <span class="c"># learn the map</span>
+    <span class="k">if</span> msg[<span class="s">"type"</span>] == <span class="s">"tick"</span>:
+        send({<span class="s">"type"</span>: <span class="s">"move"</span>,
+              <span class="s">"tick"</span>: msg[<span class="s">"tick"</span>],
+              <span class="s">"ax"</span>: <span class="n">0</span>, <span class="s">"ay"</span>: <span class="n">0</span>})</code></pre>
+    <div>
+      <p>Your agent writes it from the brief:<br><code>http://HOST:8000/brief.md</code></p>
+<pre><code><span class="c"># a project with its own .venv</span>
+uv init taxi &amp;&amp; cd taxi
+uv add websockets
+uv run bot.py</code></pre>
+      <p class="small muted" style="margin-top:.8em">Run it once, leave it running; it keeps flying while the agent works.</p>
+    </div>
   </div>
-  <p class="small muted" style="margin-top:.9em"><code>uv run</code> uses the project's own <code>.venv</code> (Python and packages), no activate.</p>
 </section>
 
 <section>
