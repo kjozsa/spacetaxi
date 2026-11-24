@@ -703,7 +703,7 @@ class ArenaServer:
         self.queue = [b for b in self.queue if b.connected]
         if self.next_wave_ns is None or time.perf_counter_ns() < self.next_wave_ns:
             return
-        groups = [list(g) for g in self.plan_arenas]
+        groups = self.plan_arenas
         if not groups:
             self.next_wave_ns = None
             return

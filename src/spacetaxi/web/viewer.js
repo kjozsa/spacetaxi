@@ -1003,7 +1003,7 @@ const plan = { data: null, at: 0 };
 function showPlan(next) {
   plan.data = next;
   plan.at = performance.now();
-  window.spacetaxi.nextWave = plan.data;
+  window.spacetaxi.nextWave = next;
   const div = (cls, text) => {
     const el = document.createElement("div"); if (cls) el.className = cls; el.textContent = text;
     return el;
@@ -1014,7 +1014,7 @@ function showPlan(next) {
     return;
   }
   const head = div("head", ""), cols = div("cols", "");
-  plan.data.arenas.forEach((names, i) => {
+  next.arenas.forEach((names, i) => {
     const col = div("col", "");
     const b = document.createElement("b"); b.textContent = `ARENA ${i + 1}`; col.appendChild(b);
     for (const name of names) {
@@ -1023,10 +1023,10 @@ function showPlan(next) {
     }
     cols.appendChild(col);
   });
-  const wait = plan.data.waitlist.map(n => n.toUpperCase()).join(", ");
+  const wait = next.waitlist.map(n => n.toUpperCase()).join(", ");
   planEl.replaceChildren(head, cols, ...(wait ? [div("wait", `WAITING: ${wait}`)] : []));
   lbNext.replaceChildren(div("head", ""),
-    ...plan.data.arenas.map((names, i) => div("", `${i + 1}: ${names.map(n => n.toUpperCase()).join(", ")}`)),
+    ...next.arenas.map((names, i) => div("", `${i + 1}: ${names.map(n => n.toUpperCase()).join(", ")}`)),
     ...(wait ? [div("wait", `WAIT: ${wait}`)] : []));
   planClock();
 }
@@ -1034,11 +1034,9 @@ function showPlan(next) {
 function planClock() {
   if (!plan.data || !plan.data.arenas.length) return;
   const d = plan.data, map = d.map.toUpperCase();
-  const left = d.starts_in === null ? null
-    : Math.max(0, Math.ceil(d.starts_in - (performance.now() - plan.at) / 1000));
-  const when = left === null ? "" : ` \u00b7 IN ${left} S`;
-  planEl.firstChild.textContent = `NEXT WAVE ${d.wave} \u00b7 ${map}${when}`;
-  lbNext.firstChild.textContent = `NEXT WAVE ${d.wave} \u00b7 ${map}${left === null ? "" : ` \u00b7 ~${left} S`}`;
+  const left = Math.max(0, Math.ceil(d.starts_in - (performance.now() - plan.at) / 1000));
+  planEl.firstChild.textContent = `NEXT WAVE ${d.wave} \u00b7 ${map} \u00b7 IN ${left} S`;
+  lbNext.firstChild.textContent = `NEXT WAVE ${d.wave} \u00b7 ${map} \u00b7 ~${left} S`;
 }
 
 function startLive() {

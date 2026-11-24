@@ -296,11 +296,10 @@ function whereText() {
   if (now) return `NOW: arena ${now.arena}, round ends in ${now.ends_in} s`;
   const next = b.next_wave;
   const i = next.arenas.findIndex(names => has(names) >= 0);
-  const when = next.starts_in === null ? "" : ` \u2014 in ~${next.starts_in} s`;
   if (i >= 0) {
     const others = next.arenas[i].filter(n => n.toLowerCase() !== key);
     return `NEXT: wave ${next.wave}, arena ${i + 1}`
-      + (others.length ? ` with ${others.join(", ")}` : "") + when;
+      + (others.length ? ` with ${others.join(", ")}` : "") + ` \u2014 in ~${next.starts_in} s`;
   }
   const w = has(next.waitlist);
   if (w >= 0) {
