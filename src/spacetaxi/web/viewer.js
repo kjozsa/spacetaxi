@@ -961,13 +961,14 @@ async function loadLeaderboard() {
   nextMapEl.textContent = `NEXT MAP: ${data.next_map.toUpperCase()}`;
   lbSub.textContent = `WAVE ${data.wave} \u00b7 ${data.rounds} ROUNDS \u00b7 AVG $`;
   window.spacetaxi.wave = data.wave;
+  showPlan(data.next_wave);
   if (!data.leaderboard.length) {
     const li = document.createElement("li"); li.className = "empty";
     li.textContent = "WAITING FOR THE FIRST ROUND";
     lbRows.replaceChildren(li);
     return;
   }
-  lbRows.replaceChildren(...data.leaderboard.slice(0, 14).map((r, n) => {
+  lbRows.replaceChildren(...data.leaderboard.map((r, n) => {
     const li = document.createElement("li");
     for (const [cls, text] of [["rank", `${n + 1}.`], ["name", r.name.toUpperCase()],
                                ...(r.human ? [["human", "HUMAN"]] : []),
@@ -978,6 +979,66 @@ async function loadLeaderboard() {
     }
     return li;
   }));
+  fitRows();
+}
+
+// Every leaderboard row shows: when they do not fit at full size, they shrink to fit.
+function fitRows() {
+  const n = lbRows.children.length;
+  lbRows.style.removeProperty("--fs");
+  lbRows.style.removeProperty("--pad");
+  if (!n || lbRows.scrollHeight <= lbRows.clientHeight) return;
+  const per = lbRows.clientHeight / n - 1;               // a row's height, less its border
+  const fs = Math.max(6, Math.min(16, Math.floor(per * 0.55)));
+  lbRows.style.setProperty("--fs", `${fs}px`);
+  lbRows.style.setProperty("--pad", `${Math.max(0, Math.floor((per - fs) / 2))}px`);
+}
+
+// The plan of the next wave: on the splash (NEXT WAVE n, its map and the countdown, a column
+// per arena, the waitlist) and in the compact box under the leaderboard. The countdown runs
+// down between polls.
+const planEl = document.getElementById("plan"), lbNext = document.getElementById("lbNext");
+const plan = { data: null, at: 0 };
+function showPlan(next) {
+  plan.data = next || null;
+  plan.at = performance.now();
+  window.spacetaxi.nextWave = plan.data;
+  const div = (cls, text) => {
+    const el = document.createElement("div"); if (cls) el.className = cls; el.textContent = text;
+    return el;
+  };
+  if (!plan.data || !plan.data.arenas.length) {
+    planEl.replaceChildren();
+    lbNext.replaceChildren();
+    return;
+  }
+  const head = div("head", ""), cols = div("cols", "");
+  plan.data.arenas.forEach((names, i) => {
+    const col = div("col", "");
+    const b = document.createElement("b"); b.textContent = `ARENA ${i + 1}`; col.appendChild(b);
+    for (const name of names) {
+      const span = document.createElement("span"); span.textContent = name.toUpperCase();
+      col.appendChild(span);
+    }
+    cols.appendChild(col);
+  });
+  const wait = plan.data.waitlist.map(n => n.toUpperCase()).join(", ");
+  planEl.replaceChildren(head, cols, ...(wait ? [div("wait", `WAITING: ${wait}`)] : []));
+  lbNext.replaceChildren(div("head", ""),
+    ...plan.data.arenas.map((names, i) => div("", `${i + 1}: ${names.map(n => n.toUpperCase()).join(", ")}`)),
+    ...(wait ? [div("wait", `WAIT: ${wait}`)] : []));
+  planClock();
+  fitRows();
+}
+
+function planClock() {
+  if (!plan.data || !plan.data.arenas.length) return;
+  const d = plan.data, map = d.map.toUpperCase();
+  const left = d.starts_in === null ? null
+    : Math.max(0, Math.ceil(d.starts_in - (performance.now() - plan.at) / 1000));
+  const when = left === null ? "" : ` \u00b7 IN ${left} S`;
+  planEl.firstChild.textContent = `NEXT WAVE ${d.wave} \u00b7 ${map}${when}`;
+  lbNext.firstChild.textContent = `NEXT WAVE ${d.wave} \u00b7 ${map}${left === null ? "" : ` \u00b7 ~${left} S`}`;
 }
 
 function startLive() {
@@ -992,6 +1053,8 @@ function startLive() {
   connectLive();
   loadLeaderboard();
   setInterval(loadLeaderboard, 3000);
+  setInterval(planClock, 250);
+  addEventListener("resize", fitRows);
 }
 
 // ---------- fly mode: a person flies one taxi in the arena, the page is its /bot client ----------

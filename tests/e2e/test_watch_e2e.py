@@ -4,6 +4,7 @@ Install the browser once: `uv run playwright install chromium`. Without it these
 
 import asyncio
 import json
+import re
 import threading
 import urllib.request
 
@@ -223,5 +224,108 @@ def test_insert_coin_names_the_next_map(browser, lonely):
     page.wait_for_function("window.spacetaxi.nextMap === 'cavern'", timeout=10000)
     page.click("#splash")
     assert "NEXT MAP: CAVERN" in page.locator("#splash").inner_text()
+    page.close()
+    assert errors == []
+
+
+# --- the plan of the next wave on /watch and /mission
+
+@pytest.fixture
+def fourteen(serve_arena):
+    """14 scripted bots on an idle server whose first wave is 10 minutes away: 12 planned into
+    3 arenas, 2 on the waitlist."""
+    server = ArenaServer({"cavern": load_map("cavern")}, RULES, 600, seed=1)
+    base, server, _ = serve_arena(server, lambda loop, port: [
+        loop.create_task(scripted_bot(port, f"bot{i}")) for i in range(14)])
+    return base, server
+
+
+def next_wave(base):
+    with urllib.request.urlopen(base + "/leaderboard.json", timeout=5) as res:
+        return json.load(res)["next_wave"]
+
+
+def wait_for_plan(page, base, size):
+    page.wait_for_function(
+        f"window.spacetaxi.nextWave && window.spacetaxi.nextWave.arenas.flat().length"
+        f" + window.spacetaxi.nextWave.waitlist.length === {size}", timeout=15000)
+    return next_wave(base)
+
+
+def test_watch_splash_shows_the_next_waves_arenas_and_waitlist(browser, fourteen, shots):
+    base, server = fourteen
+    page, errors = open_watch(browser, base)
+    plan = wait_for_plan(page, base, 14)
+    assert [len(g) for g in plan["arenas"]] == [4, 4, 4] and len(plan["waitlist"]) == 2
+    splash = page.locator("#splash")
+    assert splash.is_visible()
+    text = splash.inner_text()
+    assert re.search(r"NEXT WAVE 1 · CAVERN · IN \d+ S", text)
+    cols = page.locator("#plan .col")
+    assert cols.count() == 3
+    for i, names in enumerate(plan["arenas"]):
+        col = cols.nth(i).inner_text()
+        assert f"ARENA {i + 1}" in col and all(n.upper() in col for n in names)
+    assert page.locator("#plan .wait").inner_text() == (
+        "WAITING: " + ", ".join(n.upper() for n in plan["waitlist"]))
+    # the compact box under the leaderboard has one line per arena and one for the waitlist
+    assert page.locator("#lbNext div").count() == 1 + 3 + 1
+    page.screenshot(path=str(shots / "next-wave.png"))
+    page.close()
+    assert errors == []
+
+
+def test_watch_leaderboard_shows_all_eighteen_names(browser, serve_arena, tmp_path, shots):
+    names = [f"name{i:02d}" for i in range(18)]
+    log = tmp_path / "rounds.jsonl"
+    log.write_text(json.dumps({"type": "round_end", "round": 1, "wave": 1, "results": [
+        {"id": n, "money": 100 - i, "deliveries": 1, "crashes": 0, "ticks": 40, "late": 0}
+        for i, n in enumerate(names)]}) + "\n", encoding="utf-8")
+    server = ArenaServer({"cavern": load_map("cavern")}, RULES, 600, seed=1, log=log)
+    base, server, _ = serve_arena(server)
+    page, errors = open_watch(browser, base)
+    page.wait_for_function("window.spacetaxi.leaderboard.length === 18", timeout=10000)
+    page.click("#splash")
+    rows = page.locator("#lbRows li")
+    assert rows.count() == 18
+    box = page.locator("#lbRows").bounding_box()
+    for i in range(18):
+        r = rows.nth(i).bounding_box()
+        assert r["height"] > 0 and r["y"] >= box["y"] - 1
+        assert r["y"] + r["height"] <= box["y"] + box["height"] + 1
+    assert rows.nth(17).inner_text().split("\n")[1] == "NAME17"
+    page.screenshot(path=str(shots / "leaderboard-18.png"))
+    page.close()
+    assert errors == []
+
+
+def test_mission_shows_next_for_a_planned_name_and_waitlist_for_a_waiting_one(browser, fourteen):
+    base, server = fourteen
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.goto(base + "/watch")  # only to wait for the plan of all 14
+    plan = wait_for_plan(page, base, 14)
+    planned, others = plan["arenas"][1][0], plan["arenas"][1][1:]
+    waiting = plan["waitlist"][1]
+
+    page.goto(base + "/mission")
+    page.fill("#askName", planned)
+    page.click("#ask button")
+    page.wait_for_function("window.spacetaxi.where", timeout=10000)
+    where = page.locator("#where").inner_text()
+    assert re.fullmatch(rf"NEXT: wave 1, arena 2 with {', '.join(others)} — in ~\d+ s", where)
+
+    page.click("#rename")
+    page.fill("#askName", waiting)
+    page.click("#ask button")
+    page.wait_for_function("window.spacetaxi.where && window.spacetaxi.where.startsWith('WAITLIST')",
+                           timeout=10000)
+    assert page.locator("#where").inner_text() == "WAITLIST #2: plays in wave 2 at the latest"
+
+    page.click("#rename")
+    page.fill("#askName", "nobody")
+    page.click("#ask button")
+    page.wait_for_function("window.spacetaxi.where === 'not connected'", timeout=10000)
     page.close()
     assert errors == []

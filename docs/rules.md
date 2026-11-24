@@ -213,9 +213,15 @@ moves replays identically.
 Bots connect to the server over WebSocket at `ws://HOST:PORT/bot`. Every message is one JSON
 object, sent as one text frame. The bot's first message is `hello`; the server answers with
 `welcome`, then `queued` while the bot waits for a round. Rounds run in waves: every arena of a
-wave starts on the same tick clock, and the next wave starts a pause after all of them end. At
-the start of a wave the waiting bots are dealt into arenas of at most 4, as even as possible, and
-groups are reshuffled every wave; a bot that joins mid-wave plays from the next wave. Every
+wave starts on the same tick clock, and the next wave starts a pause after all of them end. The
+server plans the next wave early: when a wave starts, every connected bot is dealt into the next
+wave's arenas of at most 4, as even as possible (groups are reshuffled every wave, and the bots
+that sat the current wave out are seated first); the bots beyond the arenas' seats wait on the
+waitlist. On an idle server the plan starts with the first bot that joins. After that only joins
+and leaves change the plan: a bot that joins takes a free seat or the end of the waitlist, a
+bot that leaves gives its seat to the first on the waitlist, and a bot changes arena only when
+the number of bots calls for other arena sizes. The next wave plays exactly as planned, so a
+bot that joins mid-wave plays from the next wave when there is a seat. Every
 arena of a wave plays the same map, but the map can change between waves (the operator switches
 it on a running server), so read the map from every `round_start`. When the server sends an
 `error`, it closes the socket right after it.
@@ -325,9 +331,11 @@ Sent once when a bot joins. Carries the bot's taxi id and the rules (every const
 ### `queued`
 
 Sent after `welcome` and after every `round_end` while the bot waits for a round to start, and
-again whenever its place in the queue or its start time changes. `position` is the bot's place
-in the queue, from `1`; `waiting` is the number of bots in the queue; `starts_in` is the
-estimated number of whole seconds until the bot's round starts (an integer, `0` when due).
+again whenever its place or its start time changes, all following the plan of the next wave
+(see Transport). `position` is the bot's place in the plan's order, from `1`: the next wave's
+arenas first, then the waitlist; `waiting` is the number of bots in the plan; `starts_in` is
+the estimated number of whole seconds until the start of the wave the bot is planned into (an
+integer, `0` when due).
 
 ```json
 {"type": "queued", "position": 3, "waiting": 5, "starts_in": 8}

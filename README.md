@@ -84,22 +84,35 @@ next wave (the wave in progress finishes on its map; `serve` answers `next wave:
 get it, and its name as `map_name`, in every `round_start`, and the log and the replays record
 it. Without a terminal (e.g. run in the background) the map stays the first one.
 
-Bots connect to `ws://HOST:8000/bot` (protocol in [docs/rules.md](docs/rules.md)) and wait in one
-queue. Rounds run in waves: a wave starts `--fill-seconds` (default 10) after the first bot
-joins an idle server, and again `--fill-seconds` after every arena of the previous wave has ended
-(the pause for the podium and the leaderboard). At wave start the waiting bots are dealt into up
-to 3 arenas of at most 4, as even as possible (7 bots play 4 + 3, 6 play 3 + 3), and all arenas
-start together; bots beyond 12 wait for the next wave. The deal is a shuffle (`--seed`, default
-random) that prefers bots who have met least so far, so groups mix and averages compare. A bot
-that joins mid-wave gets `queued` with `starts_in` and plays from the next wave; after its round
-every bot goes back to the queue, and the server prints each wave's groups. A bot that disconnects mid-round coasts until
+Bots connect to `ws://HOST:8000/bot` (protocol in [docs/rules.md](docs/rules.md)). Rounds run in
+waves: a wave starts `--fill-seconds` (default 10) after the first bot joins an idle server, and
+again `--fill-seconds` after every arena of the previous wave has ended (the pause for the podium
+and the leaderboard); all arenas of a wave start together. The server keeps a plan of the next
+wave, so everyone can see early who plays where: when a wave starts, every connected bot is dealt
+into the next wave's up to 3 arenas of at most 4, as even as possible (7 bots play 4 + 3, 6 play
+3 + 3), the bots that sit the current wave out seated first, and the bots beyond 12 go on the
+waitlist. The deal is a shuffle (`--seed`, default random) that prefers bots who have met least
+so far, so groups mix and averages compare. On an idle server the plan starts with the first
+join. After that the plan is stable: a joiner takes a free seat or the end of the waitlist, a
+leaver's seat goes to the first on the waitlist, and a bot moves to another arena only when the
+arena sizes must change (4 bots and a 5th join: a second arena opens and one bot moves to it). The
+next wave plays exactly as planned. `queued` tells each bot its place in the plan and `starts_in`
+for the wave it is planned into; `serve` prints the plan whenever it is made or changes
+(`next wave 6 on cavern: a, b, c | d, e | f, g, h  waiting: x, y`) and each wave's groups as it
+starts; `/leaderboard.json` has it as `next_wave` (`wave`, `map`, `starts_in`, `arenas`,
+`waitlist`). A bot that disconnects mid-round coasts until
 the round ends. `/` is the leaderboard (`/leaderboard.json` its data); with `--log` each round's
 results are appended as a JSON line and the leaderboard is rebuilt from it on restart; with
 `--replays` each round is written as a replay for `spacetaxi view`.
 
 `/watch` is the neon viewer, live: put it on the projector. It follows the arena whose round
 started last, or the one picked at the bottom right, with the leaderboard beside it; between
-rounds it shows the INSERT COIN splash with the queue length; the leaderboard shows the wave. Click once to start the sound.
+rounds it shows the INSERT COIN splash with the queue length and the plan of the next wave (its
+number, map and countdown, a column per arena, the waitlist); during rounds a compact NEXT WAVE
+box sits under the leaderboard, which shows every name (the rows shrink to fit) and the wave.
+`/mission` shows under the goal where the followed bot plays: `NOW: arena 2, round ends in 41 s`,
+`NEXT: wave 6, arena 1 with anna, bob, gus — in ~55 s`, `WAITLIST #2: plays in wave 7 at the
+latest` or `not connected`. Click once to start the sound.
 
 `/fly` lets a person fly in the arena by hand, against the bots: type a name, wait in the queue,
 then fly your taxi (the one with the dashed ring and YOU) with `↑` (main engine) and `←` `→`
