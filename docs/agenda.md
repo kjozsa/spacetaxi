@@ -64,17 +64,22 @@ The bot keeps racing during a pit stop, so nothing is lost by stopping.
 
 ## Lessons
 
-The take-home of the evening: six lessons on `/lessons` (text in `docs/lessons.md`), each opened
-when it is needed, never up front, so nobody can one-shot the event from them.
+The take-home of the evening: six lessons on `/lessons` (text in `docs/lessons.md`). Each opens
+after the experience that teaches it, never up front: it names what the participant just went
+through, and nobody can one-shot the event from them.
 
-- **1. Say what done looks like, not how:** open from the start.
-- **2. Let the agent check its own work:** opens at liftoff.
-- **3. Make the loop fast, and measure:** opens at touchdown, with pit stop 1.
-- **4. Get fresh eyes:** opens at paid, with pit stop 2.
-- **5. Don't overfit to your test:** reveal it at the map twist, pit stop 3:
+- **1. Say what done looks like, not how:** opens at liftoff, after the first prompts of their own.
+- **2. Let the agent check its own work:** opens at touchdown, after the landing struggle.
+- **3. Make the loop fast, and measure:** opens at fare, after pit stop 1's offline eval.
+- **4. Get fresh eyes:** opens at clean, after pit stop 2's fresh review.
+- **5. Don't overfit to your test:** reveal it after the map twist and pit stop 3:
   `scripts/arena.fish lesson 5`.
 - **6. Put the model where there is time for it:** reveal it in the debrief:
-  `scripts/arena.fish lesson 6`, then close on `/lessons` with all six.
+  `scripts/arena.fish lesson 6`, then close on all six.
+
+To review them, and for the projector at the end, open `/lessons?key=KEY`: every lesson,
+whatever was revealed. `serve` prints the link at the start, and `scripts/arena.fish lesson`
+sends it to `up`'s output. Keep the key off the projector until the end.
 
 A lesson opens per bot name, from that bot's milestones, or for everyone with `lesson N`
 (lessons 1 to N, kept in the standings file). The server sends a locked lesson's text to no one,

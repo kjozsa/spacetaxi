@@ -9,11 +9,14 @@ milestone only, from `docs/missions.md`, polling `/standings.json`. `/slides` is
 (`docs/slides/intro.html`, self-contained, HOST:8000 filled in). `/lessons` is the
 workshop's lessons (`docs/lessons.md`): each opens when the followed bot reaches its milestone or
 the operator reveals it (`lesson N`). The page gets them from `/lessons/NAME.json` (or
-`/lessons.json`, following no bot), which sends a locked lesson's number and `after` only. Every HTML page has the
+`/lessons.json`, following no bot), which sends a locked lesson's number and `after` only. `/lessons?key=KEY` shows all of them
+for the facilitator (to review, and on the projector at the end), from
+`/lessons-all/KEY.json`; the key is random per start, printed by `serve` and by `lesson`. Every HTML page has the
 page bar linking the others (`spacetaxi.nav`).
 """
 
 import base64
+import secrets
 import json
 import re
 from pathlib import Path
@@ -70,8 +73,12 @@ class Pages:
         self.standings_page: bytes | None = None
         self.slides_page: bytes | None = None
         self.lessons_page: bytes | None = None
+        self.lessons_key = secrets.token_hex(8)  # /lessons?key=...: all of them, for the facilitator
 
-    def lessons_for(self, name: str | None) -> dict:
+    def lessons_url(self) -> str:
+        return f"http://{self.address or 'HOST:PORT'}/lessons?key={self.lessons_key}"
+
+    def lessons_for(self, name: str | None, everything: bool = False) -> dict:
         """The lessons as `name`'s page sees them: an open one whole, a locked one as its
         number and `after` only. Open: `after: start`, revealed by the operator (the first
         `revealed`), or `after` a milestone the bot `name` reached."""
@@ -81,11 +88,11 @@ class Pages:
         out = []
         for i, lesson in enumerate(parse_lessons(doc_text("lessons.md"))):
             after = lesson["after"]
-            if after == "start" or i < revealed or (after != "reveal" and after in got):
+            if everything or after == "start" or i < revealed or (after != "reveal" and after in got):
                 out.append({**lesson, "open": True})
             else:
                 out.append({"n": lesson["n"], "after": after, "open": False})
-        return {"name": name, "revealed": revealed, "lessons": out}
+        return {"name": name, "revealed": revealed, "all": everything, "lessons": out}
 
     def doc(self, name: str) -> str:
         """A file of `docs/` with the server's address filled in for HOST:PORT."""
@@ -131,6 +138,8 @@ class Pages:
             if self.lessons_page is None:
                 self.lessons_page = with_nav(build_lessons_html(), path).encode("utf-8")
             return 200, "text/html; charset=utf-8", self.lessons_page
+        if path == f"/lessons-all/{self.lessons_key}.json":
+            return 200, "application/json", json.dumps(self.lessons_for(None, True)).encode("utf-8")
         if path == "/lessons.json" or LESSONS_JSON.fullmatch(path):
             name = path[len("/lessons/"):-len(".json")] if path != "/lessons.json" else None
             data = json.dumps(self.lessons_for(name)).encode("utf-8")

@@ -38,7 +38,11 @@ def test_the_lessons_doc_has_six_numbered_lessons_each_opened_by_start_a_milesto
     for l in LESSONS:
         assert all(l[k] for k in TEXT_KEYS), l["n"]
         assert l["after"] in ("start", "reveal", *MILESTONES), l["n"]
-    assert LESSONS[0]["after"] == "start"
+    assert all(l["after"] != "start" for l in LESSONS)  # a lesson follows its experience
+
+
+def test_lessons_open_at_liftoff_touchdown_fare_clean_then_by_reveal():
+    assert [l["after"] for l in LESSONS] == ["liftoff", "touchdown", "fare", "clean", "reveal", "reveal"]
 
 
 def test_the_page_holds_no_lesson_text():
@@ -48,22 +52,22 @@ def test_the_page_holds_no_lesson_text():
             assert l[k] not in page, (l["n"], k)
 
 
-def test_without_a_bot_only_the_start_lessons_open_and_a_locked_one_carries_no_text():
+def test_without_a_bot_none_is_open_and_a_locked_one_carries_no_text():
     data = get(server(), "/lessons.json")
-    assert opened(data) == [l["n"] for l in LESSONS if l["after"] == "start"]
+    assert opened(data) == []
     for l in data["lessons"]:
         if not l["open"]:
             assert set(l) == {"n", "after", "open"}
-    assert all(l[k] not in json.dumps(data) for l in LESSONS[1:] for k in TEXT_KEYS)
+    assert all(l[k] not in json.dumps(data) for l in LESSONS for k in TEXT_KEYS)
 
 
 def test_a_bot_opens_the_lessons_of_the_milestones_it_reached_ignoring_case():
     s = server()
     award(s, "Anna", "hello", "liftoff", "touchdown")
-    want = [l["n"] for l in LESSONS if l["after"] in ("start", "hello", "liftoff", "touchdown")]
+    want = [1, 2]
     assert opened(get(s, "/lessons/anna.json")) == want
     assert opened(get(s, "/lessons/ANNA.json")) == want
-    assert opened(get(s, "/lessons/bob.json")) == [1]
+    assert opened(get(s, "/lessons/bob.json")) == []
 
 
 def test_reveal_lessons_stay_locked_until_the_operator_reveals_them():
@@ -75,7 +79,7 @@ def test_reveal_lessons_stay_locked_until_the_operator_reveals_them():
 def test_lesson_n_opens_the_first_n_for_everyone_and_is_kept_in_the_standings_file(tmp_path):
     path = tmp_path / "standings.json"
     s = server(path)
-    assert s.command("lesson") == "lessons revealed to everyone: 0 of 6"
+    assert (s.command("lesson") or "").startswith("lessons revealed to everyone: 0 of 6; all of them")
     assert s.command("lesson 5") == "lessons revealed to everyone: 5 of 6"
     data = get(s, "/lessons.json")
     assert opened(data) == [1, 2, 3, 4, 5] and data["revealed"] == 5
@@ -84,7 +88,7 @@ def test_lesson_n_opens_the_first_n_for_everyone_and_is_kept_in_the_standings_fi
     assert (s.command("lesson 7") or "").startswith("lesson: a number from 0 to 6")
     assert (s.command("lesson x") or "").startswith("lesson: a number")
     assert s.command("lesson 0") == "lessons revealed to everyone: 0 of 6"
-    assert opened(get(s, "/lessons.json")) == [1]
+    assert opened(get(s, "/lessons.json")) == []
 
 
 def test_a_path_that_is_not_a_bot_name_is_not_found():
@@ -92,3 +96,17 @@ def test_a_path_that_is_not_a_bot_name_is_not_found():
     for path in ("/lessons/.json", "/lessons/a b.json", "/lessons/abcdefghijklm.json",
                  "/lessons/../x.json", "/lessons/anna"):
         assert s.http(path) is None, path
+
+
+def test_the_key_shows_every_lesson_whatever_was_revealed_and_a_wrong_key_nothing():
+    s = server()
+    s.address = "10.0.0.7:8000"
+    url = s.lessons_url()
+    assert url == f"http://10.0.0.7:8000/lessons?key={s.lessons_key}" and len(s.lessons_key) == 16
+    assert url in (s.command("lesson") or "")
+    data = get(s, f"/lessons-all/{s.lessons_key}.json")
+    assert opened(data) == [1, 2, 3, 4, 5, 6] and data["all"]
+    assert [l["lesson"] for l in data["lessons"]] == [l["lesson"] for l in LESSONS]
+    assert s.http("/lessons-all/0000000000000000.json") is None
+    assert s.lessons_key != server().lessons_key
+    assert s.lessons_key not in s.http("/lessons")[2].decode("utf-8")

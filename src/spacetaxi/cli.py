@@ -414,6 +414,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
                   f"fly by hand http://{host}:{args.port}/fly   "
                   f"standings http://{host}:{args.port}/standings   "
                   f"mission http://{host}:{args.port}/mission")
+        print(f"  all lessons, for you and the projector (keep the key to yourself): "
+              f"{arena.lessons_url()}")
         if args.house:
             print(f"house bots (never score): {', '.join(args.house)}")
         reading = read_commands(arena)

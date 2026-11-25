@@ -326,7 +326,8 @@ class ArenaServer(Plan, Race, Admission, Pages):
         """`lesson N`: lessons 1 to N open on every /lessons page; `lesson` alone tells how many."""
         total = len(parse_lessons(doc_text("lessons.md")))
         if arg is None:
-            return f"lessons revealed to everyone: {self.standings.lessons} of {total}"
+            return (f"lessons revealed to everyone: {self.standings.lessons} of {total}; "
+                    f"all of them for you: {self.lessons_url()}")
         if not arg.isdigit() or int(arg) > total:
             return f"lesson: a number from 0 to {total}"
         self.standings.lessons = int(arg)

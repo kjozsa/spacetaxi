@@ -111,6 +111,8 @@ button.ok { background: var(--green); box-shadow: 0 0 .5em var(--green); }
 const NAME_RE = /^[A-Za-z0-9_-]{1,12}$/;
 const KEY = "spacetaxi.name";   // shared with /mission: the same bot on both pages
 const $ = id => document.getElementById(id);
+// ?key=...: the facilitator's view, every lesson open (the key is printed by serve)
+const FACILITATOR = new URLSearchParams(location.search).get("key");
 
 const st = { name: null, data: null, open: null, fresh: new Set() };
 let LESSONS = [];
@@ -120,6 +122,7 @@ function load() { try { return localStorage.getItem(KEY); } catch (e) { return n
 function save(name) { try { localStorage.setItem(KEY, name); } catch (e) { /* works without */ } }
 
 function setName(name) {
+  if (FACILITATOR) return;
   st.name = name;
   $("follow").hidden = !!name;
   $("who").hidden = !name;
@@ -174,7 +177,7 @@ function render() {
         st.fresh.add(i);
       }
       if (st.fresh.has(i)) num.append(el("span", "new", "NEW"));
-      li.append(el("h2", "", l.lesson), para("why", "WHY", l.why), para("try", "TRY", l.try));
+      li.append(el("h2", "", l.lesson), para("why", "WHY", l.why), para("try", "FROM NOW ON", l.try));
     } else {
       li.classList.add("locked");
       li.append(el("p", "wait", waitText(l)));
@@ -219,7 +222,15 @@ async function poll() {
   inflight = true;
   try {
     const name = st.name;
-    const res = await fetch(name ? `/lessons/${name}.json` : "/lessons.json", { cache: "no-store" });
+    const url = FACILITATOR ? `/lessons-all/${encodeURIComponent(FACILITATOR)}.json`
+              : name ? `/lessons/${name}.json` : "/lessons.json";
+    const res = await fetch(url, { cache: "no-store" });
+    if (FACILITATOR && res.status === 404) {
+      $("status").textContent = "WRONG KEY: USE THE LESSONS LINK SERVE PRINTED";
+      $("status").className = "down";
+      inflight = false;
+      return;
+    }
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (name !== st.name) { inflight = false; return poll(); }   // renamed while it was in flight
@@ -237,8 +248,14 @@ async function poll() {
   timer = setTimeout(poll, 2000);
 }
 
-const stored = load();
-setName(stored && NAME_RE.test(stored) ? stored : null);
+if (FACILITATOR) {
+  $("follow").hidden = true;
+  $("who").hidden = false;
+  $("who").textContent = "ALL LESSONS";
+} else {
+  const stored = load();
+  setName(stored && NAME_RE.test(stored) ? stored : null);
+}
 poll();
 </script>
 </body>
