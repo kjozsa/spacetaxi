@@ -24,8 +24,9 @@ const NAME_RE = /^[A-Za-z0-9_-]{1,12}$/;   // a player name, as the server check
 // What live mode and fly mode plug into the player: `start` the mode's start instead of
 // playing the first round, `advance(dt, now)` its view's step each frame, `pick(value)` the
 // round picker's choice, `idle(now)` whether no round runs (the splash shows), `you()` the
-// player's own index in the round (fly mode).
-const hooks = { start: null, advance: null, pick: null, idle: null, you: null };
+// player's own index in the round (fly mode), `followed(name)` whether that player's taxi is the
+// one followed (live mode's /watch?bot=NAME; never in a replay).
+const hooks = { start: null, advance: null, pick: null, idle: null, you: null, followed: () => false };
 
 const stage = document.getElementById("stage");
 const cv = document.getElementById("board"), ctx = cv.getContext("2d");
@@ -373,6 +374,7 @@ function updateHum(n) {
 // The M key and the bar's sound button both come here, so the button always shows the state.
 function setMuted(on) {
   window.spacetaxi.muted = on;
+  if (!on && !audio && window.spacetaxi.started) startAudio();   // /watch?bot= starts silent
   soundBtn.textContent = on ? "SOUND OFF" : "SOUND ON";
   soundBtn.setAttribute("aria-pressed", String(!on));
   if (master) master.gain.setTargetAtTime(on ? 0 : VOLUME, audio.currentTime, 0.02);
@@ -523,8 +525,9 @@ function drawGauges() {
 }
 
 // Fly mode: the player's own taxi gets a pulsing dashed white ring and a YOU arrow above its
-// name (and above its TO tag when it carries a passenger); bots' taxis have neither.
-function drawYou(x, y, tnow, k, carrying) {
+// name (and above its TO tag when it carries a passenger); bots' taxis have neither. On
+// /watch?bot=NAME the followed taxi gets the ring and the arrow without the text (`label` "").
+function drawYou(x, y, tnow, k, carrying, label = "YOU") {
   const a = 0.6 + 0.4 * Math.sin(tnow / 140), m = Math.max(1, k);
   ctx.save();
   ctx.globalAlpha = a; ctx.strokeStyle = "#ffffff"; ctx.shadowColor = "#ffffff"; ctx.shadowBlur = 16;
@@ -535,7 +538,7 @@ function drawYou(x, y, tnow, k, carrying) {
   ctx.beginPath(); ctx.moveTo(x - 9 * m, ty - 12 * m); ctx.lineTo(x + 9 * m, ty - 12 * m); ctx.lineTo(x, ty);
   ctx.fill();
   ctx.font = `${Math.round(12 * m)}px ${FONT}`; ctx.textAlign = "center";
-  ctx.fillText("YOU", x, ty - 16 * m);
+  if (label) ctx.fillText(label, x, ty - 16 * m);
   ctx.restore();
 }
 
@@ -678,12 +681,12 @@ function draw(tnow, dt) {
     if (FLY && p === hooks.you()) {
       drawYou(x, y, tnow, k, Boolean(pos.to));
       window.spacetaxi.marked.push(R.data.players[p]);
-    } else if (R.humans.has(R.data.players[p])) {
-      tag(x, y + 14 * k + 26, "HUMAN", "#ffffff", k);
-      window.spacetaxi.marked.push(R.data.players[p]);
-    } else if (R.house.has(R.data.players[p])) {
-      tag(x, y + 14 * k + 26, "HOUSE", "#ffffff", k);
-      window.spacetaxi.marked.push(R.data.players[p]);
+    } else {
+      const name = R.data.players[p], followed = hooks.followed(name);
+      if (followed) drawYou(x, y, tnow, k, Boolean(pos.to), "");
+      if (R.humans.has(name)) tag(x, y + 14 * k + 26, "HUMAN", "#ffffff", k);
+      else if (R.house.has(name)) tag(x, y + 14 * k + 26, "HOUSE", "#ffffff", k);
+      if (followed || R.humans.has(name) || R.house.has(name)) window.spacetaxi.marked.push(name);
     }
   }
   drawEffects(dt);

@@ -10,6 +10,77 @@ const SPLASH_AFTER = 5000;   // ms the podium stays up after the last round ends
 const live = { slots: {}, running: new Set(), wave: new Set(), latest: 0, follow: true, slot: 0,
                arenas: 0, idleSince: -Infinity, waiting: 0 };
 
+// Follow mode (/watch?bot=NAME, or the picker's FOLLOW NAME for the name /mission stored): the
+// view goes to the arena whose round has the bot (names ignore case), stays on the arena it
+// last flew in while it sits a wave out, and behaves as FOLLOW LATEST while no connected bot
+// has the name (not in a running round, the next wave's plan or its waitlist, as in /mission).
+const NAME_KEY = "spacetaxi.name";   // shared with /mission and /lessons
+const followBot = { name: null, on: false, slot: 0, board: null, outSince: 0 };
+const followEl = document.getElementById("followNote"), seatEl = document.getElementById("seat");
+const SITS_OUT_AFTER = 500;   // ms a wave runs without the bot before the banner says so
+
+const sameName = n => n.toLowerCase() === followBot.name.toLowerCase();
+const hasName = names => names.some(sameName);
+function isFollowed(player) {
+  return followBot.on && sameName(player);
+}
+
+// The running arena slot whose round has the followed bot, or 0.
+function followedSlot() {
+  for (const k of live.running) if (hasName(live.slots[k].players)) return k;
+  return 0;
+}
+
+// The arena to show while following: the bot's round, else the arena it last flew in while it
+// sits a wave out, else (not connected) the latest.
+function followSlot() {
+  return followedSlot() || (followConnected() !== false && followBot.slot) || live.latest;
+}
+
+// Whether a connected bot has the followed name; null before the first /leaderboard.json.
+function followConnected() {
+  if (followedSlot()) return true;
+  const b = followBot.board;
+  if (!b) return null;
+  return b.arenas.some(a => hasName(a.players)) || b.next_wave.arenas.some(hasName)
+    || hasName(b.next_wave.waitlist);
+}
+
+// The banner on the stage and the seat line on the splash. A wave's round_start and round_end
+// messages arrive one arena at a time, so the bot sits out only when no round of the wave has
+// it, for SITS_OUT_AFTER.
+function followUpdate() {
+  const st = window.spacetaxi;
+  st.followed = followBot.on ? followBot.name : null;
+  let note = null, seat = "";
+  if (followBot.on) {
+    const name = followBot.name.toUpperCase(), connected = followConnected();
+    const out = connected && live.running.size
+      && ![...live.wave].some(k => hasName(live.slots[k].players));
+    if (!out) followBot.outSince = 0;
+    else if (!followBot.outSince) {
+      followBot.outSince = performance.now();
+      setTimeout(followUpdate, SITS_OUT_AFTER);
+    }
+    if (connected === false) note = `${name} IS NOT CONNECTED`;
+    else if (out && performance.now() - followBot.outSince >= SITS_OUT_AFTER)
+      note = `${name} SITS OUT THIS WAVE`;
+    const next = followBot.board && followBot.board.next_wave;
+    if (next) {
+      const i = next.arenas.findIndex(hasName), w = next.waitlist.findIndex(sameName);
+      if (i >= 0) seat = `${name}: ARENA ${i + 1} IN WAVE ${next.wave}`;
+      else if (w >= 0) {
+        const seats = next.arenas.reduce((n, names) => n + names.length, 0);
+        seat = `${name}: WAITLIST #${w + 1}, PLAYS IN WAVE ${next.wave + 1 + Math.floor(w / seats)} AT THE LATEST`;
+      }
+    }
+  }
+  st.followNote = note;
+  followEl.textContent = note || "";
+  followEl.hidden = !note;
+  seatEl.textContent = seat;
+}
+
 function compactTick(players, tick, upc) {
   const byId = Object.fromEntries((tick.taxis || []).map(t => [t.id, t]));
   const moves = tick.moves || {}, move = n => moves[n] || {};
@@ -47,16 +118,20 @@ function showSlot(slot) {
 // The picker: "follow" or an arena slot number.
 function pickArena(value) {
   live.follow = value === "follow";
+  followBot.on = value === "bot";
   window.spacetaxi.follow = live.follow;
-  showSlot(live.follow ? live.latest : Number(value));
+  showSlot(followBot.on ? followSlot() : live.follow ? live.latest : Number(value));
   roundSel.value = value;
+  followUpdate();
+  markFollowed();
 }
 
 // Each arena option names its round's players; an arena without a round in the current wave
 // (`live.wave`, the slots whose round started since the last time none ran) is EMPTY.
 function liveOptions() {
-  const value = live.follow ? "follow" : String(live.slot);
+  const value = followBot.on ? "bot" : live.follow ? "follow" : String(live.slot);
   const opts = [["follow", "FOLLOW LATEST"]];
+  if (followBot.name) opts.push(["bot", `FOLLOW ${followBot.name.toUpperCase()}`]);
   for (let k = 1; k <= live.arenas; k++) {
     const d = live.slots[k];
     const names = d && live.wave.has(k) ? d.players.map(n => n.toUpperCase()).join(" ") : "";
@@ -118,8 +193,14 @@ function onLive(msg) {
     live.wave.add(slot);
     live.running.add(slot);
     live.latest = slot;
+    if (followBot.name && hasName(msg.players)) followBot.slot = slot;
+    if (followBot.on) {
+      // the new round, or another arena: the arena already on screen is not restarted
+      const target = followSlot();
+      if (target === slot || target !== live.slot) showSlot(target);
+    } else if (live.follow || live.slot === slot) showSlot(slot);
     liveOptions();
-    if (live.follow || live.slot === slot) showSlot(slot);
+    followUpdate();
     return;
   }
   const d = live.slots[slot];
@@ -133,6 +214,7 @@ function onLive(msg) {
     live.running.delete(slot);
     if (!live.running.size) live.idleSince = performance.now();
     liveOptions();
+    followUpdate();
     loadLeaderboard();
   }
 }
@@ -168,7 +250,9 @@ async function loadLeaderboard() {
   nextMapEl.textContent = `NEXT MAP: ${data.next_map.toUpperCase()}`;
   lbSub.textContent = `WAVE ${data.wave} \u00b7 ${data.rounds} ROUNDS \u00b7 AVG $`;
   window.spacetaxi.wave = data.wave;
+  followBot.board = data;
   showPlan(data.next_wave);
+  followUpdate();
   showPitstop(data.pitstop);
   if (!data.leaderboard.length) {
     const li = document.createElement("li"); li.className = "empty";
@@ -227,6 +311,7 @@ function showPlan(next) {
     const b = document.createElement("b"); b.textContent = `ARENA ${i + 1}`; col.appendChild(b);
     for (const name of names) {
       const span = document.createElement("span"); span.textContent = name.toUpperCase();
+      span.dataset.name = name;
       col.appendChild(span);
     }
     cols.appendChild(col);
@@ -236,7 +321,14 @@ function showPlan(next) {
   lbNext.replaceChildren(div("head", ""),
     ...next.arenas.map((names, i) => div("", `${i + 1}: ${names.map(n => n.toUpperCase()).join(", ")}`)),
     ...(wait ? [div("wait", `WAIT: ${wait}`)] : []));
+  markFollowed();
   planClock();
+}
+
+// The followed bot's name stands out in its arena's column of the plan.
+function markFollowed() {
+  for (const span of planEl.querySelectorAll(".col span"))
+    span.classList.toggle("me", isFollowed(span.dataset.name));
 }
 
 // The next pit stop (docs/lessons.md): how many participants have reached its milestone, of the
@@ -299,8 +391,23 @@ function startLive() {
   splash.querySelector(".hint").textContent = "C SCREEN \u00b7 M OR SOUND BUTTON MUTE \u00b7 D DEBUG";
   Object.assign(window.spacetaxi, { live: true, arena: 0, follow: true, running: [], idle: true,
                                     waiting: 0, leaderboard: [], connected: false,
-                                    milestones: [] });
+                                    milestones: [], followed: null, followNote: null });
+  // ?bot=NAME follows that bot from the start, silently and without the INSERT COIN click (a
+  // participant's laptop); plain /watch only offers the name /mission stored, as an option.
+  // A value no bot could be named (see NAME_RE) is ignored, as if not given.
+  const valid = v => (v = (v || "").trim(), NAME_RE.test(v) ? v : "");
+  const asked = valid(new URLSearchParams(location.search).get("bot"));
+  let stored = "";
+  try { stored = valid(localStorage.getItem(NAME_KEY)); } catch (err) { /* private mode */ }
+  followBot.name = asked || stored || null;
+  if (asked) {
+    followBot.on = true; live.follow = false; window.spacetaxi.follow = false;
+    window.spacetaxi.started = true;
+    splash.querySelector(".coin").hidden = true;   // as if clicked: nothing to click between waves
+    setMuted(true);
+  }
   showSlot(0);
+  followUpdate();
   liveOptions();
   connectLive();
   loadLeaderboard();
@@ -309,4 +416,5 @@ function startLive() {
   addEventListener("resize", fitRows);
 }
 
-Object.assign(hooks, { start: startLive, advance: liveAdvance, pick: pickArena, idle: liveIdle });
+Object.assign(hooks, { start: startLive, advance: liveAdvance, pick: pickArena, idle: liveIdle,
+                       followed: isFollowed });
