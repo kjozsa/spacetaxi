@@ -184,7 +184,9 @@ a participant's page once their bot reaches its milestone, or for everyone when 
 `/lessons?key=KEY`, every lesson for the facilitator; the key is new on every start. Lessons
 marked `Pit stop:` are pit stops the room takes together: `/watch` shows the next one and calls
 it due once half the participants have its milestone, and `serve` says so once; opening its
-lesson ends it.
+lesson ends it. The participants are the head count you type (`room N`, saved in the
+`--standings` file; `room` alone tells it) or the bots in the standings, whichever is more, so
+bots that connect late don't make a pit stop due early. House bots and bans never count.
 
 A participant flying alone never reaches milestones 6 to 9 (they need a round of at least 2
 taxis), so start house bots to fill the rounds, and name them to `serve` so they never take a
@@ -219,6 +221,7 @@ keeps its state (standings, log, replays, pid files, bot logs, the control pipe)
 | `map NAME`, `maps` | switch the next wave's map, list the maps (answered in `up`'s output) |
 | `kick NAME`, `ban NAME`, `unban NAME` | disconnect a bot, ban its name, lift a ban (answered in `up`'s output) |
 | `lesson [N]` | open lessons 1 to N for everyone (0 hides them; no N: how many are open, and the facilitator link) |
+| `room [N]` | the participants in the room: a pit stop is due at half of them (0: count the standings; no N: how many) |
 | `status` | up or not, current and next map, waiting and playing, house bots, top 5 |
 | `open` | open `/watch` and `/standings` in the browser |
 | `down` | stop the house bots and the arena |
