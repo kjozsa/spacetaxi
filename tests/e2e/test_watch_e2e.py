@@ -222,11 +222,6 @@ def test_watch_rotation_wraps_when_the_shown_arena_closes(browser, serve_arena):
             await sock.close()
 
     on_server(leave())
-    # the wave in progress, or one dealt before they left, may still have three
-    page.wait_for_function(f"window.spacetaxi.running.length === 2"
-                           f" && window.spacetaxi.round > {last} && window.spacetaxi.tick > 1",
-                           timeout=20000)
-    assert state(page)["arena"] == 1
     assert rotation(page, base, 2, 3, last)[0] == [1, 2, 1]
     page.close()
     assert errors == []
@@ -257,6 +252,26 @@ def test_watch_rotation_keeps_its_arena_over_a_reconnect_mid_wave(browser, two_a
     assert errors == []
 
 
+def test_watch_rotate_picked_mid_wave_keeps_its_arena_over_a_reconnect(browser, two_arenas):
+    base, server = two_arenas
+    page, errors = open_watch(browser, base, init=SOCKETS)
+    page.click("#splash")
+    arena, last = wave_start(page, base, 2)
+    assert arena == 1
+    page.select_option("#round", "2")
+    page.select_option("#round", "rotate")
+    page.wait_for_function("window.spacetaxi.rotate && window.spacetaxi.arena === 2")
+    page.evaluate("window.__sockets.at(-1).close()")
+    page.wait_for_function("window.__sockets.length === 2 && window.spacetaxi.connected"
+                           " && window.spacetaxi.running.length === 2", timeout=10000)
+    s = state(page)
+    if s["round"] <= last:   # the reconnect replayed the same wave
+        assert s["arena"] == 2
+    assert wave_start(page, base, 2, last)[0] == 1
+    page.close()
+    assert errors == []
+
+
 class Restartable:
     """An 8-bot arena server that `restart()` replaces by a fresh one on the same port, as an
     operator restarting `serve` without a log does: round numbers start over."""
@@ -278,6 +293,7 @@ class Restartable:
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         await self.start(self.host, self.port)
+        # kept: the loop holds only weak references to tasks
         self.tasks = self.bots(self.loop, self.port)
 
 

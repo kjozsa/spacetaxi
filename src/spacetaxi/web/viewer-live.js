@@ -130,6 +130,8 @@ function pickArena(value) {
   live.rotate = value === "rotate";
   followBot.on = value === "bot";
   window.spacetaxi.rotate = live.rotate;
+  // the rotation of this wave lands on the arena on screen, also when a reconnect replays it
+  if (live.rotate) live.rotateFrom = live.slot - 1;
   showSlot(followBot.on ? followSlot() : live.rotate ? live.slot : Number(value));
   roundSel.value = value;
   followUpdate();
@@ -205,7 +207,7 @@ function onLive(msg) {
       // a lower one, from a restarted server) starts a new wave's rotation
       if (!live.waveRounds.has(msg.round)) {
         live.rotateFrom = live.slot;
-        live.waveRounds = new Set();
+        live.waveRounds.clear();
       }
     }
     live.waveRounds.add(msg.round);
@@ -215,7 +217,8 @@ function onLive(msg) {
     if (followBot.name && hasName(msg.players)) followBot.slot = slot;
     if (followBot.on || live.rotate) {
       // the new round, or another arena: the arena already on screen is not restarted; the
-      // wave's round_starts arrive one arena at a time, so the rotation's target settles as they do
+      // wave's round_starts arrive one arena at a time, so the rotation's target settles as
+      // they do
       const target = followBot.on ? followSlot() : rotateSlot();
       if (target === slot || target !== live.slot) showSlot(target);
     } else if (live.slot === slot) showSlot(slot);
