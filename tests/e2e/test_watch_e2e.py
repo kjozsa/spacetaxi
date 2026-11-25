@@ -654,6 +654,51 @@ def test_watch_bot_ignores_case(browser, two_arenas):
     assert errors == []
 
 
+def bubbles_are_only(page, name):
+    """Whether this frame's bubbles hold `<name> here` once and nothing else."""
+    return [b for b in state(page)["bubbles"] if b] == [f"{name} here"]
+
+
+def test_watch_bot_shows_only_its_debug_until_d(browser, two_arenas, shots):
+    base, server = two_arenas
+    page, errors = open_watch(browser, base, "bot3")
+    page.wait_for_function("window.spacetaxi.running.length === 2 && window.spacetaxi.tick > 2"
+                           " && window.spacetaxi.bubbles.includes('bot3 here')", timeout=15000)
+    assert not state(page)["overlay"]
+    assert bubbles_are_only(page, "bot3")
+    page.wait_for_timeout(200)
+    assert bubbles_are_only(page, "bot3")
+    page.screenshot(path=str(shots / "follow-bot-debug.png"))
+
+    # D shows every bot's bubble, and again only bot3's
+    page.keyboard.press("d")
+    page.wait_for_function("window.spacetaxi.bubbles.filter(b => b.endsWith(' here')).length > 1",
+                           timeout=5000)
+    shown = [b for b in state(page)["bubbles"] if b]
+    assert len(set(shown)) == len(shown) > 1 and all(b.endswith(" here") for b in shown)
+    page.keyboard.press("d")
+    page.wait_for_function("window.spacetaxi.bubbles.filter(b => b.endsWith(' here')).length === 1",
+                           timeout=5000)
+    assert bubbles_are_only(page, "bot3")
+    page.close()
+    assert errors == []
+
+
+def test_plain_watch_shows_no_debug_until_d(browser, two_arenas):
+    base, server = two_arenas
+    page, errors = open_watch(browser, base)
+    page.click("#splash")
+    page.wait_for_function("window.spacetaxi.started && window.spacetaxi.tick > 2", timeout=15000)
+    for _ in range(3):
+        assert not any(state(page)["bubbles"])
+        page.wait_for_timeout(100)
+    page.keyboard.press("d")
+    page.wait_for_function("window.spacetaxi.bubbles.filter(b => b.endsWith(' here')).length > 1",
+                           timeout=5000)
+    page.close()
+    assert errors == []
+
+
 @pytest.fixture
 def thirteen(serve_arena):
     """13 scripted bots on a server with 3 arenas (12 seats): one sits out every wave."""
