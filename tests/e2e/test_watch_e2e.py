@@ -600,3 +600,40 @@ def test_watch_bot_follows_a_late_joiner_until_it_leaves(browser, serve_arena):
     page.wait_for_function("window.spacetaxi.followNote === 'LATE IS NOT CONNECTED'", timeout=20000)
     page.close()
     assert errors == []
+
+
+def test_watch_bot_banner_never_flashes_while_its_bot_flies(browser, two_arenas):
+    base, server = two_arenas
+    watch = """document.addEventListener('DOMContentLoaded', () => {
+        const el = document.querySelector('#followNote');
+        window.__notes = [];
+        new MutationObserver(() => { if (!el.hidden) window.__notes.push(el.textContent); })
+          .observe(el, {attributes: true, childList: true});
+    })"""
+    page, errors = open_follow(browser, base, "bot3", init=watch)
+    # arenas start and end one message at a time, over several waves
+    page.wait_for_function("window.spacetaxi.round >= 5 && window.spacetaxi.tick > 1",
+                           timeout=40000)
+    assert page.evaluate("window.__notes") == []
+    page.close()
+    assert errors == []
+
+
+def test_watch_bot_picker_moves_the_plan_highlight_and_keeps_the_countdown(browser, lonely):
+    base, server = lonely
+    page, errors = open_follow(browser, base, "bot0")
+    wait_for_plan(page, base, 1)
+    page.wait_for_function("document.querySelector('#plan span.me') !== null", timeout=10000)
+    left = ("Number(document.querySelector('#plan').firstChild.textContent"
+            ".match(/IN (\\d+) S/)[1])")
+    before = page.evaluate(left)
+    page.wait_for_timeout(1200)
+    page.select_option("#round", "1")
+    assert page.locator("#plan span.me").count() == 0
+    assert page.locator("#seat").text_content() == ""
+    page.select_option("#round", "bot")
+    assert page.locator("#plan span.me").count() == 1
+    page.wait_for_timeout(300)
+    assert page.evaluate(left) < before
+    page.close()
+    assert errors == []
