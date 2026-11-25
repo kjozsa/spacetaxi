@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spacetaxi: lessons</title>
+<style>
+@font-face {
+  font-family: "Press Start 2P";
+  src: url(data:font/ttf;base64,/*FONT*/) format("truetype");
+}
+/* The lessons of the evening, one card each, in the neon style of /mission. A lesson opens when
+   the followed bot reaches its milestone or the facilitator reveals it; the rest stay as dim
+   slots, so the room can see how many are still to come. */
+:root {
+  --bg: #04030b; --panel: #0e0c1c; --line: #2a2546; --fg: #e9e6ff; --muted: #9a94c4;
+  --cyan: #2ef2ff; --pink: #ff3df0; --gold: #ffd23f; --green: #7dff5a; --violet: #7a5cff;
+  --pixel: "Press Start 2P", "Courier New", monospace;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  color-scheme: dark;
+}
+html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--fg); }
+body {
+  font: clamp(15px, 0.55rem + 0.6vw, 22px)/1.5 var(--mono);
+  padding: clamp(14px, 2.4vw, 40px); box-sizing: border-box; min-height: 100vh;
+  background: radial-gradient(ellipse at top, #120d2e 0%, var(--bg) 70%) fixed;
+}
+body::after {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 9;
+  background: repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0 2px, rgba(0,0,0,.22) 2px 3px);
+}
+main { max-width: 52em; margin: 0 auto; }
+[hidden] { display: none !important; }
+a { color: var(--cyan); }
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+         gap: .4em 1em; font-family: var(--pixel); font-size: .7em; color: var(--muted); }
+header b { color: var(--cyan); font-weight: normal; }
+#status { font-family: var(--pixel); font-size: .6em; color: var(--muted); min-height: 1.6em; margin: .6em 0 0; }
+#status.down { color: var(--pink); }
+
+#follow { display: flex; flex-wrap: wrap; align-items: center; gap: .5em; margin: .4em 0 0;
+          font-size: .85em; color: var(--muted); }
+#follow input { font: inherit; width: 9em; padding: .25em .45em; background: #07061a; color: #fff;
+                border: 2px solid var(--cyan); }
+#follow .err { color: var(--pink); }
+
+h1 { font-family: var(--pixel); font-weight: normal; color: var(--cyan); line-height: 1.3;
+     font-size: clamp(22px, 1rem + 2.2vw, 44px); margin: .8em 0 .3em;
+     text-shadow: 0 0 .3em var(--cyan), 0 0 .8em var(--violet); }
+#progress { font-family: var(--pixel); font-size: .65em; color: var(--gold); margin: 0 0 1.2em; }
+#bar { display: flex; gap: .35em; margin: .7em 0 0; }
+#bar i { flex: 1; height: .55em; background: var(--line); }
+#bar i.on { background: var(--gold); box-shadow: 0 0 .5em var(--gold); }
+
+ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 1em; }
+.lesson { padding: 1.1em 1.3em 1.2em; background: var(--panel); border: 2px solid var(--line);
+          border-left: 4px solid var(--cyan); }
+.lesson .num { font-family: var(--pixel); font-size: .6em; color: var(--muted); letter-spacing: .08em; }
+.lesson .new { color: #04030b; background: var(--green); padding: .25em .45em; margin-left: .6em;
+               box-shadow: 0 0 .5em var(--green); }
+.lesson h2 { font-family: var(--pixel); font-weight: normal; color: #fff; line-height: 1.5;
+             font-size: clamp(15px, .7rem + 1vw, 26px); margin: .6em 0 .7em; text-wrap: balance; }
+.lesson p { margin: .5em 0 0; max-width: 65ch; }
+.lesson .label { font-family: var(--pixel); font-size: .6em; margin-right: .6em; }
+.lesson .why .label { color: var(--pink); }
+.lesson .try .label { color: var(--green); }
+.lesson.locked { border-left-color: var(--line); background: transparent; border-style: dashed; }
+.lesson.locked .num { color: #5d578a; }
+.lesson.locked .wait { font-family: var(--pixel); font-size: .6em; color: #5d578a; margin: .7em 0 0; line-height: 1.6; }
+.lesson.fresh { animation: open .7s ease-out; border-left-color: var(--green); }
+@keyframes open { from { opacity: 0; transform: translateY(-.6em); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .lesson.fresh { animation: none; } }
+
+#keep { margin: 1.6em 0 0; padding: 1.1em 1.3em; border: 2px solid var(--gold); background: var(--panel); }
+#keep p { margin: 0 0 .8em; }
+button { font-family: var(--pixel); font-size: .7em; cursor: pointer; color: #04030b; background: var(--gold);
+         border: 0; padding: .8em 1em; box-shadow: 0 0 .5em var(--gold); }
+button.ok { background: var(--green); box-shadow: 0 0 .5em var(--green); }
+#keepText { position: fixed; left: -9999px; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <span>SPACE TAXI · LESSONS</span>
+  <span id="who" hidden>following <b id="whoName"></b> · <a href="#" id="rename">change</a></span>
+</header>
+<form id="follow" hidden>
+  <label for="askName">Your bot's name, to open the lessons it has earned:</label>
+  <input id="askName" maxlength="12" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="bot name">
+  <button type="submit">FOLLOW</button>
+  <span class="err" id="askErr"></span>
+</form>
+<p id="status"></p>
+
+<h1>What to take home</h1>
+<div id="progress"><span id="count"></span><div id="bar"></div></div>
+<ol id="list"></ol>
+
+<section id="keep" hidden>
+  <p>That's all six. Copy them into your notes: they work on any problem you give an agent.</p>
+  <button id="copy" type="button">COPY ALL SIX</button>
+  <textarea id="keepText" readonly aria-hidden="true" tabindex="-1"></textarea>
+</section>
+</main>
+
+<script>
+"use strict";
+// The page holds no lesson text: /lessons/NAME.json sends the ones open to that bot whole
+// ({n, after, lesson, why, try, open: true}) and the locked ones as {n, after, open: false}.
+const NAME_RE = /^[A-Za-z0-9_-]{1,12}$/;
+const KEY = "spacetaxi.name";   // shared with /mission: the same bot on both pages
+const $ = id => document.getElementById(id);
+
+const st = { name: null, data: null, open: null, fresh: new Set() };
+let LESSONS = [];
+window.spacetaxi = { open: [], polls: 0 };
+
+function load() { try { return localStorage.getItem(KEY); } catch (e) { return null; } }
+function save(name) { try { localStorage.setItem(KEY, name); } catch (e) { /* works without */ } }
+
+function setName(name) {
+  st.name = name;
+  $("follow").hidden = !!name;
+  $("who").hidden = !name;
+  $("whoName").textContent = name || "";
+}
+$("follow").addEventListener("submit", e => {
+  e.preventDefault();
+  const name = $("askName").value.trim();
+  if (!NAME_RE.test(name)) { $("askErr").textContent = "1-12 of A-Z a-z 0-9 _ -"; return; }
+  $("askErr").textContent = "";
+  save(name);
+  setName(name);
+  refresh();
+});
+$("rename").addEventListener("click", e => {
+  e.preventDefault();
+  $("askName").value = st.name || "";
+  setName(null);
+  $("askName").focus();
+});
+
+function waitText(l) {
+  if (l.after === "reveal") return "OPENS LATER, FOR THE WHOLE ROOM";
+  return `OPENS WHEN YOUR BOT REACHES ${l.after.toUpperCase().replace(/_/g, " ")}`;
+}
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+function para(cls, label, text) {
+  const p = el("p", cls);
+  p.append(el("span", "label", label), document.createTextNode(text));
+  return p;
+}
+
+function render() {
+  const open = LESSONS.map(l => l.open);
+  const first = st.open === null;   // page load: what is open is not new
+  const list = $("list");
+  list.replaceChildren();
+  LESSONS.forEach((l, i) => {
+    const li = el("li", "lesson");
+    const num = el("div", "num", `LESSON ${l.n} OF ${LESSONS.length}`);
+    li.append(num);
+    if (open[i]) {
+      if (!first && !st.open[i]) {   // opened since the last poll: animate once, badge from then on
+        li.classList.add("fresh");
+        st.fresh.add(i);
+      }
+      if (st.fresh.has(i)) num.append(el("span", "new", "NEW"));
+      li.append(el("h2", "", l.lesson), para("why", "WHY", l.why), para("try", "TRY", l.try));
+    } else {
+      li.classList.add("locked");
+      li.append(el("p", "wait", waitText(l)));
+    }
+    list.append(li);
+  });
+  if (st.data) st.open = open;   // before the first poll nothing counts as opened yet
+  const n = open.filter(Boolean).length;
+  $("count").textContent = `${n} OF ${LESSONS.length} OPEN`;
+  $("bar").replaceChildren(...open.map(o => el("i", o ? "on" : "")));
+  $("keep").hidden = !LESSONS.length || n < LESSONS.length;
+  window.spacetaxi.open = LESSONS.filter((l, i) => open[i]).map(l => l.n);
+}
+
+$("copy").addEventListener("click", async () => {
+  const text = LESSONS.map(l => `${l.n}. ${l.lesson}`).join("\n") + "\n";
+  let ok = false;
+  try {
+    if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); ok = true; }
+  } catch (e) { /* fall back below */ }
+  if (!ok) {   // plain http on a LAN address: no Clipboard API
+    const ta = $("keepText");
+    ta.value = text;
+    ta.select();
+    try { ok = document.execCommand("copy"); } catch (e) { /* nothing more to try */ }
+  }
+  $("copy").textContent = ok ? "COPIED" : "SELECT AND COPY BELOW";
+  $("copy").classList.toggle("ok", ok);
+  if (!ok) { const ta = $("keepText"); ta.style.position = "static"; ta.rows = LESSONS.length + 1; ta.style.width = "100%"; }
+});
+
+let inflight = false, timer = null;
+function refresh() {   // a new name: start over, so its earned lessons don't count as new
+  st.open = null;
+  st.data = null;
+  st.fresh.clear();
+  poll();
+}
+async function poll() {
+  if (inflight) return;
+  clearTimeout(timer);
+  inflight = true;
+  try {
+    const name = st.name;
+    const res = await fetch(name ? `/lessons/${name}.json` : "/lessons.json", { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (name !== st.name) { inflight = false; return poll(); }   // renamed while it was in flight
+    st.data = data;
+    LESSONS = data.lessons;
+    $("status").textContent = "";
+    $("status").className = "";
+    window.spacetaxi.polls += 1;
+    render();
+  } catch (err) {
+    $("status").textContent = "SERVER UNREACHABLE, RETRYING ...";
+    $("status").className = "down";
+  }
+  inflight = false;
+  timer = setTimeout(poll, 2000);
+}
+
+const stored = load();
+setName(stored && NAME_RE.test(stored) ? stored : null);
+poll();
+</script>
+</body>
+</html>

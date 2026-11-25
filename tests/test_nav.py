@@ -30,7 +30,8 @@ def links(page: str) -> list[tuple[str, bool]]:
 
 def test_every_served_page_has_the_bar_marking_itself():
     s = server()
-    assert PAGES == ["/", "/watch", "/standings", "/mission", "/fly", "/card", "/brief", "/slides"]
+    assert PAGES == ["/", "/watch", "/standings", "/mission", "/lessons", "/fly", "/card", "/brief",
+                     "/slides"]
     for path in PAGES + ["/index.html"]:
         status, kind, body = s.http(path)
         page = body.decode("utf-8")

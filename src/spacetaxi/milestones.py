@@ -88,15 +88,17 @@ class Standings:
         self.path = Path(path) if path else None
         self.awards: dict[str, dict[str, dict]] = {}  # name -> milestone -> {place, points}
         self.banned: set[str] = set()  # names the operator banned, lowercased
+        self.lessons = 0  # lessons the operator revealed to the whole room (the first N)
         if self.path and self.path.exists():
             data = json.loads(self.path.read_text(encoding="utf-8"))
             try:
                 self.banned = {str(n).lower() for n in data.get("banned", [])}
+                self.lessons = int(data.get("lessons", 0))
                 for name, got in data["awards"].items():
                     self.awards[name] = {m: {"place": int(a["place"]),
                                              "points": int(a["points"])}
                                          for m, a in got.items()}
-            except (AttributeError, KeyError, TypeError) as exc:
+            except (AttributeError, KeyError, TypeError, ValueError) as exc:
                 raise ValueError(f"{self.path}: not a standings file ({exc!r})") from None
 
     def reached(self, milestone: str) -> int:
@@ -147,7 +149,8 @@ class Standings:
         if not self.path:
             return
         tmp = self.path.with_name(self.path.name + ".tmp")
-        tmp.write_text(json.dumps({"awards": self.awards, "banned": sorted(self.banned)},
+        tmp.write_text(json.dumps({"awards": self.awards, "banned": sorted(self.banned),
+                                   "lessons": self.lessons},
                                   indent=1) + "\n", encoding="utf-8")
         os.replace(tmp, self.path)
 

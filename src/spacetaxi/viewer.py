@@ -134,6 +134,29 @@ def parse_missions(text: str) -> list[dict]:
     return out
 
 
+def parse_lessons(text: str) -> list[dict]:
+    """The lessons of `docs/lessons.md`: one `{n, after, lesson, why, try}` per `## N` section,
+    in file order, from its `After:`, `Lesson:`, `Why:` and `Try:` lines."""
+    out = []
+    for section in text.split("\n## ")[1:]:
+        head, *lines = section.splitlines()
+        fields = {"n": int(head.strip()), "after": "", "lesson": "", "why": "", "try": ""}
+        for line in lines:
+            key, sep, value = line.partition(":")
+            if sep and key in ("After", "Lesson", "Why", "Try"):
+                fields[key.lower()] = value.strip()
+        out.append(fields)
+    return out
+
+
+def build_lessons_html() -> str:
+    """The lessons page (`spacetaxi serve`'s `/lessons`). It holds no lesson text: it polls
+    `/lessons/NAME.json`, which sends only the lessons open to that bot, so a locked lesson
+    can't be read early from the page."""
+    font = base64.b64encode((WEB_DIR / "PressStart2P-Regular.ttf").read_bytes()).decode("ascii")
+    return (WEB_DIR / "lessons.html").read_text(encoding="utf-8").replace("/*FONT*/", font)
+
+
 def build_mission_html(text: str) -> str:
     """The participant's mission page (`spacetaxi serve`'s `/mission`), with the missions of
     `text` (`docs/missions.md`, HOST:PORT already filled in) embedded; it polls

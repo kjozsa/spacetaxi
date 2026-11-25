@@ -14,6 +14,7 @@ function usage
     echo "  kick NAME          disconnect a bot"
     echo "  ban NAME           disconnect a bot, refuse its name and drop it from the standings"
     echo "  unban NAME         accept a banned name again"
+    echo "  lesson [N]         open lessons 1 to N on every /lessons page (0 hides; no N: how many)"
     echo "  status             is it up, the map, who plays, the house bots, the top 5"
     echo "  open [--card]      open /watch and /standings (and /card) in the browser"
     echo "  down               stop the house bots and the arena started by up"
@@ -42,7 +43,7 @@ if test -z "$cmd"; or contains -- $cmd -h --help
     usage
     exit 0
 end
-if not contains -- $cmd up house unhouse map maps kick ban unban status open down
+if not contains -- $cmd up house unhouse map maps kick ban unban lesson status open down
     echo "arena: unknown command '$cmd'" >&2
     usage >&2
     exit 2
@@ -182,9 +183,9 @@ switch $cmd
             echo "no house bots running"
         end
 
-    case map maps kick ban unban
-        if test $cmd = maps
-            set line maps
+    case map maps kick ban unban lesson
+        if test $cmd = maps; or begin; test $cmd = lesson; and not set -q argv[1]; end
+            set line $cmd
         else
             set -q argv[1]; or fail "$cmd: which one? ($cmd NAME)"
             set line "$cmd $argv[1]"

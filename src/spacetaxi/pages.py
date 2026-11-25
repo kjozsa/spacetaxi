@@ -7,7 +7,10 @@ fed live from `/spectate`. `/standings` is the projector page of the milestone r
 (`docs/participant-card.md`, `docs/brief.md`, rendered, with `address` filled in for HOST:PORT;
 `/brief.md` is the raw Markdown). `/mission` is each participant's own page: their next
 milestone only, from `docs/missions.md`, polling `/standings.json`. `/slides` is the intro deck
-(`docs/slides/intro.html`, self-contained, HOST:8000 filled in). Every HTML page has the
+(`docs/slides/intro.html`, self-contained, HOST:8000 filled in). `/lessons` is the
+workshop's lessons (`docs/lessons.md`): each opens when the followed bot reaches its milestone or
+the operator reveals it (`lesson N`). The page gets them from `/lessons/NAME.json` (or
+`/lessons.json`, following no bot), which sends a locked lesson's number and `after` only. Every HTML page has the
 page bar linking the others (`spacetaxi.nav`).
 """
 
@@ -18,10 +21,11 @@ from pathlib import Path
 
 from .milestones import MILESTONES, POINTS
 from .nav import with_nav
-from .viewer import (build_doc_html, build_fly_html, build_live_html, build_mission_html,
-                     build_standings_html)
+from .viewer import (build_doc_html, build_fly_html, build_lessons_html, build_live_html,
+                     build_mission_html, build_standings_html, parse_lessons)
 
 WEB_DIR = Path(__file__).parent / "web"
+LESSONS_JSON = re.compile(r"/lessons/[A-Za-z0-9_-]{1,12}\.json")  # a bot name, as hello allows
 
 # the Markdown documents the server serves: path -> (file in docs/, page title)
 DOC_PAGES = {"/card": ("participant-card.md", "Spacetaxi: participant card"),
@@ -67,6 +71,23 @@ class Pages:
         self.leaderboard_page: bytes | None = None
         self.standings_page: bytes | None = None
         self.slides_page: bytes | None = None
+        self.lessons_page: bytes | None = None
+
+    def lessons_for(self, name: str | None) -> dict:
+        """The lessons as `name`'s page sees them: an open one whole, a locked one as its
+        number and `after` only. Open: `after: start`, revealed by the operator (the first
+        `revealed`), or `after` a milestone the bot `name` reached."""
+        key = (name or "").lower()
+        got = next((m for n, m in self.standings.awards.items() if n.lower() == key), {})
+        revealed = self.standings.lessons
+        out = []
+        for i, lesson in enumerate(parse_lessons(doc_text("lessons.md"))):
+            after = lesson["after"]
+            if after == "start" or i < revealed or (after != "reveal" and after in got):
+                out.append({**lesson, "open": True})
+            else:
+                out.append({"n": lesson["n"], "after": after, "open": False})
+        return {"name": name, "revealed": revealed, "lessons": out}
 
     def doc(self, name: str) -> str:
         """A file of `docs/` with the server's address filled in for HOST:PORT."""
@@ -108,6 +129,14 @@ class Pages:
                 page = build_slides_html(self.address or "HOST:8000")
                 self.slides_page = with_nav(page, path).encode("utf-8")
             return 200, "text/html; charset=utf-8", self.slides_page
+        if path == "/lessons":
+            if self.lessons_page is None:
+                self.lessons_page = with_nav(build_lessons_html(), path).encode("utf-8")
+            return 200, "text/html; charset=utf-8", self.lessons_page
+        if path == "/lessons.json" or LESSONS_JSON.fullmatch(path):
+            name = path[len("/lessons/"):-len(".json")] if path != "/lessons.json" else None
+            data = json.dumps(self.lessons_for(name)).encode("utf-8")
+            return 200, "application/json", data
         if path == "/mission":
             text = self.doc("missions.md")
             page = with_nav(build_mission_html(text), path)

@@ -34,7 +34,8 @@ The server can have several maps (`maps`, the first is the start map). `command`
 the operator typed (`map NAME`, `maps`): `map NAME` sets the map of the next wave; the wave in
 progress finishes on its map. All arenas of a wave play one map, named in `round_start` as
 `map_name`, and their `beat_greedy` / `beat_pilot` compare against that map's benchmarks.
-`kick NAME` disconnects a bot; `ban NAME` disconnects it, refuses the name from then on and
+`lesson N` opens lessons 1 to N
+on every `/lessons` page (kept in the standings file). `kick NAME` disconnects a bot; `ban NAME` disconnects it, refuses the name from then on and
 leaves it out of the standings, the leaderboard and the plan (bans are kept in the standings
 file); `unban NAME` lifts it. An exception in one connection's handler is logged as one line.
 """
@@ -52,11 +53,12 @@ from .limits import (BOT_MAX_MESSAGE, FLOOD_BYTES, FLOOD_MESSAGES, HELLO_TIMEOUT
                      Admission, Flood, parse)
 from .maps import Map
 from .milestones import Tracker
-from .pages import Pages
+from .pages import Pages, doc_text
 from .plan import ARENA_SIZE, MAX_ARENAS, Plan, group_sizes  # noqa: F401
 from .race import Race
 from .runner import check_move, clean_debug
 from .sim import Rules, World
+from .viewer import parse_lessons
 
 OUTBOX_TICKS = 8  # a tick is dropped for a bot that has this many messages still unsent
 
@@ -315,8 +317,21 @@ class ArenaServer(Plan, Race, Admission, Pages):
             return f"next wave: {name}"
         if words[0] in ("kick", "ban", "unban") and len(words) == 2:
             return getattr(self, words[0])(words[1])
+        if words[0] == "lesson" and len(words) <= 2:
+            return self.lesson(words[1] if len(words) == 2 else None)
         return ("commands: map NAME (the next wave's map), maps (list them), kick NAME, "
-                "ban NAME, unban NAME")
+                "ban NAME, unban NAME, lesson N (reveal lessons 1 to N to everyone, 0 hides)")
+
+    def lesson(self, arg: str | None) -> str:
+        """`lesson N`: lessons 1 to N open on every /lessons page; `lesson` alone tells how many."""
+        total = len(parse_lessons(doc_text("lessons.md")))
+        if arg is None:
+            return f"lessons revealed to everyone: {self.standings.lessons} of {total}"
+        if not arg.isdigit() or int(arg) > total:
+            return f"lesson: a number from 0 to {total}"
+        self.standings.lessons = int(arg)
+        self.standings.save()
+        return f"lessons revealed to everyone: {self.standings.lessons} of {total}"
 
     def connected(self, name: str) -> Bot | None:
         """The connected bot of `name`, ignoring case."""

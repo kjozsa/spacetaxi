@@ -15,7 +15,8 @@ from pathlib import Path
 WEB_DIR = Path(__file__).parent / "web"
 
 NAV_PAGES = (("/", "LEADERBOARD"), ("/watch", "WATCH"), ("/standings", "STANDINGS"),
-             ("/mission", "MISSION"), ("/fly", "FLY"), ("/card", "CARD"), ("/brief", "BRIEF"),
+             ("/mission", "MISSION"), ("/lessons", "LESSONS"), ("/fly", "FLY"),
+             ("/card", "CARD"), ("/brief", "BRIEF"),
              ("/slides", "SLIDES"))
 
 PLACEHOLDER = "<!--NAV-->"
