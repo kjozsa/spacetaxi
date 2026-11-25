@@ -525,3 +525,44 @@ def test_spectators_streaming_messages_do_not_stall_the_ticks(serve):
             p.kill()
             p.wait(timeout=5)
     srv.stop()
+
+
+# says hello as its own name, sends a message that is not JSON, then streams empty text messages
+# without reading the error, connecting again whenever the server drops it
+BOT_STREAM_AFTER_ERROR = """
+import socket, sys, time
+def frame(data):
+    return bytes([0x81, 0x80 | len(data), 0, 0, 0, 0]) + data
+hello = b'{"type":"hello","name":"%s","protocol":1}' % sys.argv[2].encode()
+chunk = frame(b"") * 40000
+while True:
+    try:
+        s = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=5)
+        s.sendall(b"GET /bot HTTP/1.1\\r\\nHost: x\\r\\nUpgrade: websocket\\r\\n"
+                  b"Connection: Upgrade\\r\\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\\r\\n"
+                  b"Sec-WebSocket-Version: 13\\r\\n\\r\\n")
+        s.recv(4096)
+        s.sendall(frame(hello) + frame(b"nope"))
+        while True:
+            s.sendall(chunk)
+    except OSError:
+        time.sleep(0.05)
+"""
+
+
+def test_bots_that_keep_streaming_after_an_error_do_not_stall_the_ticks(serve):
+    srv = serve()
+    probe = Probe(srv.port)
+    rider = Raw(srv.port)
+    rider.hello("rider")
+    probe.start()
+    wait_round(probe)
+    floods = [subprocess.Popen([sys.executable, "-c", BOT_STREAM_AFTER_ERROR, str(srv.port),
+                                f"noisy{i}"]) for i in range(2)]
+    try:
+        assert_rhythm(probe)
+    finally:
+        for p in floods:
+            p.kill()
+            p.wait(timeout=5)
+    assert "+ noisy0 joined" in srv.stop()
