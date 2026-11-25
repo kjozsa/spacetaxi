@@ -509,6 +509,29 @@ def test_watch_bot_splash_shows_its_seat_in_the_next_wave(browser, lonely, shots
     assert errors == []
 
 
+def test_watch_bot_splash_after_a_wave_names_its_next_seat(browser, serve_arena):
+    # the splash comes back 5 s after the last round ends, so the next wave must be further away
+    base, server = run_arena(serve_arena, bots=8, fill_seconds=8)
+    page, errors = open_watch(browser, base, "bot3")
+    page.wait_for_function("window.spacetaxi.running.length === 2", timeout=25000)
+    page.wait_for_function("window.spacetaxi.idle", timeout=15000)
+    page.locator("#splash").wait_for(state="visible", timeout=10000)
+    plan = next_wave(base)
+    i = next(k for k, names in enumerate(plan["arenas"]) if "bot3" in names)
+    line = f"BOT3: ARENA {i + 1} IN WAVE {plan['wave']}"
+    page.wait_for_function(f"document.querySelector('#seat').textContent === '{line}'", timeout=5000)
+    assert page.locator("#plan .col").nth(i).locator("span.me").inner_text().endswith("BOT3")
+    assert page.locator("#plan span.me").count() == 1
+    assert "INSERT COIN" not in page.locator("#splash").inner_text()
+    assert state(page)["followNote"] is None
+    # and the next wave is shown from the arena the splash named
+    page.wait_for_function("window.spacetaxi.running.length === 2 && window.spacetaxi.tick > 1",
+                           timeout=15000)
+    assert state(page)["arena"] == i + 1 == arena_of(base, "bot3")
+    page.close()
+    assert errors == []
+
+
 def test_watch_bot_not_connected_plays_like_plain_watch(browser, two_arenas):
     base, server = two_arenas
     page, errors = open_watch(browser, base, "nobody")
