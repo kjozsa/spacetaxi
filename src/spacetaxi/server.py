@@ -60,7 +60,8 @@ leaves it out of the standings, the leaderboard and the plan (bans are kept in t
 file); `unban NAME` lifts it.
 
 Hostile clients (docs/rules.md, Limits): a bot's message over `BOT_MAX_MESSAGE` bytes gets
-`too_big`, more than `FLOOD_MESSAGES` in one tick `flooding`, and the connection is closed;
+`too_big`, more than `FLOOD_MESSAGES` or `FLOOD_BYTES` in one tick `flooding`, and the
+connection is closed;
 `max_bots_per_ip` and `max_bots` (None: no cap) cap the bots connected at once (`too_many`,
 `full`), house bots aside. An exception in one connection's handler is logged as one line.
 """
@@ -95,6 +96,7 @@ HELLO_TIMEOUT = 10  # seconds a new connection has to say hello
 BOT_MAX_MESSAGE = 64 * 1024  # bytes: a bigger message from a bot gets `too_big` and is closed
 SPECTATE_MAX_MESSAGE = 4 * 1024  # spectators send nothing
 FLOOD_MESSAGES = 20  # more messages than this from one bot within one tick: `flooding`
+FLOOD_BYTES = 128 * 1024  # more bytes than this from one bot within one tick: `flooding` too
 MAX_BOTS_PER_IP = 4  # `serve`'s default for bots connected at once from one IP, house bots aside
 MAX_BOTS = 40  # `serve`'s default for bots connected at once, house bots aside
 OUTBOX_TICKS = 8  # a tick is dropped for a bot that has this many messages still unsent
@@ -494,7 +496,7 @@ class ArenaServer:
         self.standings.save()
         if bot is not None:
             self.disconnect(bot, "banned", "the operator banned this name")
-        self.plan_order_drop(key)
+            self.plan_leave(bot.name)
         return f"banned {name}" + (" and disconnected it" if bot else "")
 
     def unban(self, name: str) -> str:
@@ -505,11 +507,6 @@ class ArenaServer:
         self.standings.save()
         return f"unbanned {name}"
 
-    def plan_order_drop(self, key: str) -> None:
-        """Take a (banned) name out of the plan of the next wave, ignoring case."""
-        for name in self.plan_order():
-            if name.lower() == key:
-                self.plan_leave(name)
 
     # --- HTTP
 
@@ -862,8 +859,6 @@ class ArenaServer:
             # spectators send nothing: one that does is dropped at once, without draining it
             if await sock.recv() is not None:
                 await sock.abort(1008)
-        except Exception as exc:
-            self.say(f"! spectator {sock.peer}: {type(exc).__name__} {str(exc)[:200]}")
         finally:
             self.spectators.discard(spectator)
             await spectator.stop()
@@ -889,50 +884,53 @@ class ArenaServer:
         """A bot's connection: its hello, then its moves until it leaves. Any exception is
         logged as one line, not raised."""
         try:
-            await self.serve_bot(sock)
+            bot = await self.greet(sock)
         except Exception as exc:
-            self.say(f"! {getattr(sock, 'bot_name', None) or sock.peer}: "
-                     f"{type(exc).__name__} {str(exc)[:200]}")
+            return self.crashed(sock.peer, exc)
+        if bot is None:
+            return
+        try:
+            await self.listen(bot)
+        except Exception as exc:
+            self.crashed(bot.name, exc)
+        finally:
+            await bot.stop()
+            if self.bots.get(bot.name) is bot:
+                del self.bots[bot.name]
+            if bot in self.queue:
+                self.queue.remove(bot)
+            self.plan_leave(bot.name)
+            self.tell_positions()
+            self.say(f"- {bot.name} left")
 
-    async def serve_bot(self, sock: ws.WebSocket) -> None:
+    def crashed(self, who: str, exc: Exception) -> None:
+        self.say(f"! {who}: {type(exc).__name__} {str(exc)[:200]}")
+
+    async def too_big(self, sock: ws.WebSocket) -> None:
+        await self.error(sock, "too_big", f"messages are at most {BOT_MAX_MESSAGE} bytes")
+
+    async def greet(self, sock: ws.WebSocket) -> Bot | None:
+        """The hello of a new connection: the bot, welcomed and queued, or None after an
+        `error`."""
         try:
             async with asyncio.timeout(HELLO_TIMEOUT):
                 text = await sock.recv()
         except TimeoutError:
-            return await self.error(sock, "bad_message", f"no hello within {HELLO_TIMEOUT} s")
+            await self.error(sock, "bad_message", f"no hello within {HELLO_TIMEOUT} s")
+            return None
         if text is None:
             if sock.too_big:
-                await self.error(sock, "too_big", f"messages are at most {BOT_MAX_MESSAGE} bytes")
-            return
+                await self.too_big(sock)
+            return None
         hello = parse(text)
-        if hello is None or hello.get("type") != "hello":
-            return await self.error(sock, "bad_message", "the first message must be hello")
-        name = hello.get("name")
-        if not isinstance(name, str) or not NAME.fullmatch(name):
-            return await self.error(sock, "bad_name", "name: 1 to 12 characters of A-Z a-z 0-9 _ -")
-        if type(hello.get("protocol")) is not int or hello["protocol"] != PROTOCOL:
-            return await self.error(sock, "bad_protocol",
-                                    f"this server speaks protocol {PROTOCOL}")
-        if name.lower() in self.standings.banned:
-            return await self.error(sock, "banned", f"name {name!r} is banned")
-        if name in self.bots:
-            return await self.error(sock, "name_taken", f"name {name!r} is already connected")
-        spelling = self.spelling(name)
-        if spelling is not None and spelling != name:
-            return await self.error(sock, "name_taken", f"name {name!r} is taken as {spelling!r}; "
-                                                        f"connect as {spelling!r}")
-        house = name.lower() in self.house
-        if not house:
-            guests = [b for n, b in self.bots.items() if n.lower() not in self.house]
-            if self.max_bots is not None and len(guests) >= self.max_bots:
-                return await self.error(sock, "full", f"the arena is full ({self.max_bots} bots)")
-            if self.max_bots_per_ip is not None and sum(
-                    b.sock.ip == sock.ip for b in guests) >= self.max_bots_per_ip:
-                return await self.error(sock, "too_many", f"at most {self.max_bots_per_ip} bots "
-                                                          "from one address at once")
+        refusal = self.refuse(sock, hello)
+        if refusal is not None:
+            await self.error(sock, *refusal)
+            return None
+        name = hello["name"]
         human = hello.get("client") == "human"
+        house = name.lower() in self.house
         bot = Bot(name, sock, human=human)
-        sock.bot_name = name
         self.bots[name] = bot
         self.say(f"+ {name} joined from {sock.peer}" + (" (human)" if human else "")
                  + (" (house)" if house else ""))
@@ -940,39 +938,61 @@ class ArenaServer:
         if not human and not house:
             self.award("hello", [(name, 0)])
         self.enqueue(bot)
+        return bot
+
+    def refuse(self, sock: ws.WebSocket, hello: dict | None) -> tuple[str, str] | None:
+        """Why `hello` is refused, as `(code, message)`; None to welcome it."""
+        if hello is None or hello.get("type") != "hello":
+            return "bad_message", "the first message must be hello"
+        name = hello.get("name")
+        if not isinstance(name, str) or not NAME.fullmatch(name):
+            return "bad_name", "name: 1 to 12 characters of A-Z a-z 0-9 _ -"
+        if type(hello.get("protocol")) is not int or hello["protocol"] != PROTOCOL:
+            return "bad_protocol", f"this server speaks protocol {PROTOCOL}"
+        if name.lower() in self.standings.banned:
+            return "banned", f"name {name!r} is banned"
+        if name in self.bots:
+            return "name_taken", f"name {name!r} is already connected"
+        spelling = self.spelling(name)
+        if spelling is not None and spelling != name:
+            return "name_taken", f"name {name!r} is taken as {spelling!r}; connect as {spelling!r}"
+        if name.lower() in self.house:
+            return None
+        guests = [b for n, b in self.bots.items() if n.lower() not in self.house]
+        if self.max_bots is not None and len(guests) >= self.max_bots:
+            return "full", f"the arena is full ({self.max_bots} bots)"
+        if self.max_bots_per_ip is not None and sum(
+                b.sock.ip == sock.ip for b in guests) >= self.max_bots_per_ip:
+            return "too_many", f"at most {self.max_bots_per_ip} bots from one address at once"
+        return None
+
+    async def listen(self, bot: Bot) -> None:
+        """A bot's moves until it leaves, or breaks a limit or the protocol (an `error`)."""
+        sock = bot.sock
         tick_ns = self.rules.tick_ms * 1_000_000
-        window, count = 0, 0  # the start of the current tick-long window, messages in it
-        try:
-            while (text := await sock.recv()) is not None:
-                now = time.perf_counter_ns()
-                if now - window >= tick_ns:
-                    window, count = now, 0
-                count += 1
-                if count > FLOOD_MESSAGES:
-                    await bot.stop()
-                    await self.error(sock, "flooding", f"more than {FLOOD_MESSAGES} messages "
-                                                       "within one tick")
-                    return
-                msg = parse(text)
-                if msg is None or msg.get("type") != "move":
-                    await bot.stop()
-                    await self.error(sock, "bad_message",
-                                     "expected a move" if msg else "not a JSON object")
-                    return
-                if bot.arena is not None:
-                    bot.arena.on_move(bot, msg, now)
-            if sock.too_big:
+        window, count, size = 0, 0, 0  # the current tick-long window: its start, messages, size
+        while (text := await sock.recv()) is not None:
+            now = time.perf_counter_ns()
+            if now - window >= tick_ns:
+                window, count, size = now, 0, 0
+            count += 1
+            size += len(text) if text.isascii() else len(text.encode("utf-8"))
+            if count > FLOOD_MESSAGES or size > FLOOD_BYTES:
                 await bot.stop()
-                await self.error(sock, "too_big", f"messages are at most {BOT_MAX_MESSAGE} bytes")
-        finally:
+                await self.error(sock, "flooding", f"at most {FLOOD_MESSAGES} messages and "
+                                                   f"{FLOOD_BYTES} bytes within one tick")
+                return
+            msg = parse(text)
+            if msg is None or msg.get("type") != "move":
+                await bot.stop()
+                await self.error(sock, "bad_message",
+                                 "expected a move" if msg else "not a JSON object")
+                return
+            if bot.arena is not None:
+                bot.arena.on_move(bot, msg, now)
+        if sock.too_big:
             await bot.stop()
-            if self.bots.get(name) is bot:
-                del self.bots[name]
-            if bot in self.queue:
-                self.queue.remove(bot)
-            self.plan_leave(name)
-            self.tell_positions()
-            self.say(f"- {name} left")
+            await self.too_big(sock)
 
 
 def parse(text) -> dict | None:

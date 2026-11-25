@@ -66,7 +66,7 @@ def round_maps(replays: Path) -> list[str]:
     return maps
 
 
-def test_arena_script_up_house_status_map_unhouse_down():
+def test_arena_script_up_house_status_map_kick_ban_unhouse_down():
     port = free_port()
     folder = ROOT / "out" / "arena" / str(port)
     out = folder.parent / f"serve-{port}.out"

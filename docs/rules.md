@@ -231,8 +231,9 @@ Limits, so one buggy or hostile client cannot spoil the race for the others:
 - A message from a bot is at most 64 KB (65 536 bytes; a `move` is well under 1 KB). A bigger
   frame or message gets `error` `too_big` and the connection is closed; the server decides on
   the frame header and never reads the rest. A spectator's message is at most 4 KB.
-- A bot sends at most 20 messages within one tick (`tick_ms`); one more gets `error`
-  `flooding` and the connection is closed. One `move` per tick is all a bot needs.
+- A bot sends at most 20 messages and at most 128 KB (131 072 bytes) within one tick
+  (`tick_ms`); more gets `error` `flooding` and the connection is closed. One `move` per tick
+  is all a bot needs.
 - At most 4 bots are connected at once from one IP address (`spacetaxi serve
   --max-bots-per-ip`) and 40 in all (`--max-bots`); the house bots do not count. Over the cap
   the `hello` gets `error` `too_many` or `full`.
@@ -514,7 +515,7 @@ is free text for humans. `code` is one of:
 - `bad_message`: the message is not JSON (JSON nested too deep included), not an object, has
   an unknown `type`, or is not `hello` when `hello` is expected.
 - `too_big`: a message over 64 KB (see Transport, Limits).
-- `flooding`: more than 20 messages within one tick.
+- `flooding`: more than 20 messages, or more than 128 KB, within one tick.
 - `too_many`: the IP address already has the most bots connected that the server allows.
 - `full`: the server already has the most bots connected that it allows.
 - `kicked`: the operator disconnected the bot; it may connect again.

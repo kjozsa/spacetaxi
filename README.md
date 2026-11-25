@@ -107,8 +107,8 @@ results are appended as a JSON line and the leaderboard is rebuilt from it on re
 
 Limits keep a buggy or hostile bot from spoiling the race (details in
 [docs/rules.md](docs/rules.md#transport)): a bot's message is at most 64 KB (`too_big`), a
-spectator's 4 KB; more than 20 messages from one bot within one tick close it (`flooding`); a
-move's `debug` text is cut to 200 characters and its `path` to 200 cells. At most
+spectator's 4 KB; more than 20 messages or 128 KB from one bot within one tick close it
+(`flooding`); a move's `debug` text is cut to 200 characters and its `path` to 200 cells. At most
 `--max-bots-per-ip` bots (default 4) connect at once from one IP address (`too_many`) and
 `--max-bots` (default 40) in all (`full`); the `--house` bots do not count. Deeply nested JSON is
 a `bad_message`, and an exception in one connection is logged as one line (`! NAME: ...`).

@@ -17,13 +17,14 @@ from spacetaxi import __version__
 from spacetaxi.maps import MapError, load_map
 from spacetaxi.play import build_html as build_play_html
 from spacetaxi.runner import BOTS_DIR, BotError, format_table, load_bot, run
-from spacetaxi.server import MAX_BOTS, MAX_BOTS_PER_IP
 from spacetaxi.sim import Rules
 from spacetaxi.show import ReplayError, frame, get_round, get_tick, load_replay, render
 from spacetaxi.viewer import build_html, make_server
 
 
 def build_parser() -> argparse.ArgumentParser:
+    from spacetaxi.server import MAX_BOTS, MAX_BOTS_PER_IP
+
     parser = argparse.ArgumentParser(
         prog="spacetaxi",
         description="spacetaxi: a bot-arena game where taxis fly on a grid and carry passengers.",
@@ -153,7 +154,8 @@ def build_parser() -> argparse.ArgumentParser:
     serve_cmd.add_argument(
         "--control", metavar="PATH",
         help="create a named pipe at PATH and read the terminal's commands (`map NAME`, "
-             "`maps`, `kick NAME`, `ban NAME`, `unban NAME`) from it too, one per line, e.g. echo 'map classic' > PATH; removed on exit")
+             "`maps`, `kick NAME`, `ban NAME`, `unban NAME`) from it too, one per line, e.g. "
+             "echo 'map classic' > PATH; removed on exit")
     serve_cmd.set_defaults(func=cmd_serve)
 
     connect_cmd = commands.add_parser(
@@ -484,8 +486,9 @@ def parse_benchmarks(items: list[str], maps: list[str]) -> dict[str, dict[str, i
 
 
 def read_commands(arena) -> bool:
-    """Read the operator's commands (`map NAME`, `maps`, `kick NAME`, ...) from stdin in a daemon thread, each
-    answered on stdout; only when stdin is a terminal. Returns whether it reads."""
+    """Read the operator's commands (`map NAME`, `maps`, `kick NAME`, ...) from stdin in a
+    daemon thread, each answered on stdout; only when stdin is a terminal. Returns whether it
+    reads."""
     try:
         if not sys.stdin or not sys.stdin.isatty():
             return False

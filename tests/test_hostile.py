@@ -566,3 +566,23 @@ def test_bots_that_keep_streaming_after_an_error_do_not_stall_the_ticks(serve):
             p.kill()
             p.wait(timeout=5)
     assert "+ noisy0 joined" in srv.stop()
+
+
+def test_more_than_128_kb_within_one_tick_is_flooding():
+    async def main():
+        server = ArenaServer({"cavern": load_map("cavern")}, Rules(tick_ms=1000), 60, seed=1)
+        srv = await server.start("127.0.0.1", 0)
+        port = srv.sockets[0].getsockname()[1]
+        sock = await ws.connect(f"ws://127.0.0.1:{port}/bot")
+        await sock.send(json.dumps({"type": "hello", "name": "fat", "protocol": 1}))
+        move = json.dumps({"type": "move", "tick": 1, "ax": 0, "ay": 0, "debug": "x" * 60_000})
+        for _ in range(3):  # 3 messages, 180 KB: under the message count, over the bytes
+            await sock.send(move)
+        got = []
+        while (text := await sock.recv()) is not None:
+            got.append(json.loads(text))
+        srv.close()
+        return got
+
+    got = asyncio.run(main())
+    assert got[-1]["type"] == "error" and got[-1]["code"] == "flooding"
