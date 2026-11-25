@@ -124,8 +124,9 @@ into the `--control` pipe, or use `scripts/arena.fish kick NAME`):
 - `unban NAME`: accept the name again (its leaderboard row comes back; its milestones start
   over).
 
-`/watch` is the neon viewer, live: put it on the projector. It follows the arena whose round
-started last, or the one picked at the bottom right, with the leaderboard beside it; between
+`/watch` is the neon viewer, live: put it on the projector. It rotates through the running
+arenas, moving to the next one (1, 2, 3, 1, ...) at each wave start, or holds the one picked at
+the bottom right (ROTATE resumes the rotation), with the leaderboard beside it; between
 rounds it shows the INSERT COIN splash with the queue length and the plan of the next wave (its
 number, map and countdown, a column per arena, the waitlist); during rounds a compact NEXT WAVE
 box sits under the leaderboard, which shows every name (the rows shrink to fit) and the wave.

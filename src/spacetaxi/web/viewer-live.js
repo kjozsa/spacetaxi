@@ -1,19 +1,21 @@
 // ---------- live mode: the arenas of `spacetaxi serve`, from its /spectate socket ----------
 // Joined after viewer.js on /watch and /fly (spacetaxi/viewer.py); it plugs into the player's `hooks`.
 // Each arena slot (1 to the server's max) holds its latest round, in the replay's compact shape
-// (see compact_tick in viewer.py) plus `arena` and `over`. The picker shows one slot or follows
-// the arena whose round started last. The view stays a tick or two behind the newest tick, so
-// the taxis glide between ticks; it jumps ahead when it falls further behind.
+// (see compact_tick in viewer.py) plus `arena` and `over`. The picker holds one slot or rotates:
+// at each wave start the view moves to the next slot (1, 2, 3, 1, ...) with a round in the wave,
+// so every arena gets screen time on the projector. The view stays a tick or two behind the
+// newest tick, so the taxis glide between ticks; it jumps ahead when it falls further behind.
 const LIVE_STATES = { flying: FLYING, landed: LANDED, crashed: CRASHED };
 const LIVE_LAG = 3;          // ticks behind the newest one before the view jumps ahead
 const SPLASH_AFTER = 5000;   // ms the podium stays up after the last round ends, before the splash
-const live = { slots: {}, running: new Set(), wave: new Set(), latest: 0, follow: true, slot: 0,
-               arenas: 0, idleSince: -Infinity, waiting: 0 };
+const live = { slots: {}, running: new Set(), wave: new Set(), latest: 0, rotate: true, slot: 0,
+               rotateFrom: 0, waveRounds: new Set(), arenas: 0, idleSince: -Infinity, waiting: 0 };
 
 // Follow mode (/watch?bot=NAME, or the picker's FOLLOW NAME for the name /mission stored): the
 // view goes to the arena whose round has the bot (names ignore case), stays on the arena it
-// last flew in while it sits a wave out, and behaves as FOLLOW LATEST while no connected bot
-// has the name (not in a running round, the next wave's plan or its waitlist, as in /mission).
+// last flew in while it sits a wave out, and shows the arena whose round started last while no
+// connected bot has the name (not in a running round, the next wave's plan or its waitlist, as
+// in /mission).
 const NAME_KEY = "spacetaxi.name";   // shared with /mission and /lessons
 const followBot = { name: null, on: false, slot: 0, board: null, outSince: 0 };
 const followEl = document.getElementById("followNote"), seatEl = document.getElementById("seat");
@@ -115,12 +117,20 @@ function showSlot(slot) {
   window.spacetaxi.map = R.data.map;
 }
 
-// The picker: "follow" or an arena slot number.
+// The rotation's arena for the current wave: the first slot of the wave after the one shown
+// when the wave started (`live.rotateFrom`), wrapping around to the wave's first slot.
+function rotateSlot() {
+  const slots = [...live.wave].sort((a, b) => a - b);
+  return slots.find(k => k > live.rotateFrom) || slots[0];
+}
+
+// The picker: "rotate", "bot" or an arena slot number. ROTATE keeps the arena on screen until
+// the next wave starts.
 function pickArena(value) {
-  live.follow = value === "follow";
+  live.rotate = value === "rotate";
   followBot.on = value === "bot";
-  window.spacetaxi.follow = live.follow;
-  showSlot(followBot.on ? followSlot() : live.follow ? live.latest : Number(value));
+  window.spacetaxi.rotate = live.rotate;
+  showSlot(followBot.on ? followSlot() : live.rotate ? live.slot : Number(value));
   roundSel.value = value;
   followUpdate();
   markFollowed();
@@ -129,8 +139,8 @@ function pickArena(value) {
 // Each arena option names its round's players; an arena without a round in the current wave
 // (`live.wave`, the slots whose round started since the last time none ran) is EMPTY.
 function liveOptions() {
-  const value = followBot.on ? "bot" : live.follow ? "follow" : String(live.slot);
-  const opts = [["follow", "FOLLOW LATEST"]];
+  const value = followBot.on ? "bot" : live.rotate ? "rotate" : String(live.slot);
+  const opts = [["rotate", "ROTATE"]];
   if (followBot.name) opts.push(["bot", `FOLLOW ${followBot.name.toUpperCase()}`]);
   for (let k = 1; k <= live.arenas; k++) {
     const d = live.slots[k];
@@ -189,16 +199,26 @@ function onLive(msg) {
                          players: msg.players, humans: msg.humans || [],
                          house: msg.house || [], rules, ticks: [],
                          over: false };
-    if (!live.running.size) live.wave.clear();   // all arenas of a wave start together
+    if (!live.running.size) {   // all arenas of a wave start together
+      live.wave.clear();
+      // a reconnect replays the running rounds of the wave already seen: any other round (also
+      // a lower one, from a restarted server) starts a new wave's rotation
+      if (!live.waveRounds.has(msg.round)) {
+        live.rotateFrom = live.slot;
+        live.waveRounds = new Set();
+      }
+    }
+    live.waveRounds.add(msg.round);
     live.wave.add(slot);
     live.running.add(slot);
     live.latest = slot;
     if (followBot.name && hasName(msg.players)) followBot.slot = slot;
-    if (followBot.on) {
-      // the new round, or another arena: the arena already on screen is not restarted
-      const target = followSlot();
+    if (followBot.on || live.rotate) {
+      // the new round, or another arena: the arena already on screen is not restarted; the
+      // wave's round_starts arrive one arena at a time, so the rotation's target settles as they do
+      const target = followBot.on ? followSlot() : rotateSlot();
       if (target === slot || target !== live.slot) showSlot(target);
-    } else if (live.follow || live.slot === slot) showSlot(slot);
+    } else if (live.slot === slot) showSlot(slot);
     liveOptions();
     followUpdate();
     return;
@@ -389,7 +409,7 @@ function startLive() {
   idleNav();
   document.getElementById("lb").hidden = false;
   splash.querySelector(".hint").textContent = "C SCREEN \u00b7 M OR SOUND BUTTON MUTE \u00b7 D DEBUG";
-  Object.assign(window.spacetaxi, { live: true, arena: 0, follow: true, running: [], idle: true,
+  Object.assign(window.spacetaxi, { live: true, arena: 0, rotate: true, running: [], idle: true,
                                     waiting: 0, leaderboard: [], connected: false,
                                     milestones: [], followed: null, followNote: null });
   // ?bot=NAME follows that bot from the start, silently and without the INSERT COIN click (a
@@ -401,7 +421,7 @@ function startLive() {
   try { stored = valid(localStorage.getItem(NAME_KEY)); } catch (err) { /* private mode */ }
   followBot.name = asked || stored || null;
   if (asked) {
-    followBot.on = true; live.follow = false; window.spacetaxi.follow = false;
+    followBot.on = true; live.rotate = false; window.spacetaxi.rotate = false;
     window.spacetaxi.started = true;
     splash.querySelector(".coin").hidden = true;   // as if clicked: nothing to click between waves
     setMuted(true);
