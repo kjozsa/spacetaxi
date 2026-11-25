@@ -976,7 +976,8 @@ class ArenaServer:
             if now - window >= tick_ns:
                 window, count, size = now, 0, 0
             count += 1
-            size += len(text) if text.isascii() else len(text.encode("utf-8"))
+            size += (len(text.encode("utf-8")) if isinstance(text, str) and not text.isascii()
+                     else len(text))  # bytes for a binary message
             if count > FLOOD_MESSAGES or size > FLOOD_BYTES:
                 await bot.stop()
                 await self.error(sock, "flooding", f"at most {FLOOD_MESSAGES} messages and "
