@@ -491,6 +491,29 @@ def test_watch_bot_sits_out_a_wave_on_its_last_arena(browser, thirteen, shots):
     assert errors == []
 
 
+def test_watch_bot_splash_names_its_place_on_the_waitlist(browser, serve_arena):
+    # 13 bots on 12 seats; the splash returns 5 s after a wave, before the next one starts
+    base, server = run_arena(serve_arena, bots=13, fill_seconds=8)
+    deadline = time.monotonic() + 20
+    while len(live_arenas(base)) < 3:
+        assert time.monotonic() < deadline, "the first wave did not start"
+        time.sleep(0.05)
+    waiter = next_wave(base)["waitlist"][0]
+    page, errors = open_watch(browser, base, waiter.upper())
+    page.wait_for_function("window.spacetaxi.running.length === 3", timeout=5000)
+    page.wait_for_function("window.spacetaxi.idle", timeout=15000)
+    page.locator("#splash").wait_for(state="visible", timeout=10000)
+    plan = next_wave(base)
+    assert plan["waitlist"] == [waiter]
+    line = f"{waiter.upper()}: WAITLIST #1, PLAYS IN WAVE {plan['wave'] + 1} AT THE LATEST"
+    page.wait_for_function(f"document.querySelector('#seat').textContent === '{line}'", timeout=2000)
+    assert page.locator("#seat").is_visible()
+    assert page.locator("#plan span.me").count() == 0   # no arena column has it
+    assert state(page)["followNote"] is None
+    page.close()
+    assert errors == []
+
+
 def test_watch_bot_splash_shows_its_seat_in_the_next_wave(browser, lonely, shots):
     base, server = lonely
     page, errors = open_watch(browser, base, "bot0")
