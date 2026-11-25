@@ -370,7 +370,7 @@ differ from the previous round's: the server can switch it between waves.
 {
   "type": "round_start",
   "round": 1,
-  "map_name": "classic",
+  "map_name": "example",
   "map": [
     "####################",
     "#..................#",

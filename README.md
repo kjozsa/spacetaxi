@@ -168,15 +168,23 @@ the server's address and their name filled in (`serve` prints the URL). Their ag
 brief, `http://HOST:8000/brief` (raw Markdown at `/brief.md`, from [docs/brief.md](docs/brief.md));
 the milestones are for the people, who slice the work one small prompt per milestone. During the race keep `/standings` on the projector.
 For a mid-race twist that shows whose agent built a general bot rather than one tuned to one map,
-start `serve` with every map you may use (`--map cavern --map canyon`) and type `map canyon` in
+start `serve` with every map you may use (`--map cavern --map classic`) and type `map classic` in
 its terminal (or, with `serve --control PATH`, write it into that named pipe:
-`echo 'map canyon' > PATH`): the next wave plays canyon, bots stay connected, and the INSERT
+`echo 'map classic' > PATH`): the next wave plays classic, bots stay connected, and the INSERT
 COIN splash on `/watch` names the next map.
 Each participant keeps `http://HOST:8000/mission` open next to their agent: it shows only their
 next milestone (goal, a hint phrased as a question, a ready prompt for the first one only, from
 [docs/missions.md](docs/missions.md)) and celebrates each award. The name typed there only
 picks the bot to follow, ignoring case; bot names ignore case too, the first spelling seen keeps
 the name.
+
+`/lessons` holds the workshop's six lessons ([docs/lessons.md](docs/lessons.md)): each opens on
+a participant's page once their bot reaches its milestone, or for everyone when you type
+`lesson N` (lessons 1 to N; `lesson` alone tells how many are open). `serve` prints
+`/lessons?key=KEY`, every lesson for the facilitator; the key is new on every start. Lessons
+marked `Pit stop:` are pit stops the room takes together: `/watch` shows the next one and calls
+it due once half the participants have its milestone, and `serve` says so once; opening its
+lesson ends it.
 
 A participant flying alone never reaches milestones 6 to 9 (they need a round of at least 2
 taxis), so start house bots to fill the rounds, and name them to `serve` so they never take a
@@ -210,6 +218,7 @@ keeps its state (standings, log, replays, pid files, bot logs, the control pipe)
 | `unhouse [NAME\|all]` | stop house bots started by `house` |
 | `map NAME`, `maps` | switch the next wave's map, list the maps (answered in `up`'s output) |
 | `kick NAME`, `ban NAME`, `unban NAME` | disconnect a bot, ban its name, lift a ban (answered in `up`'s output) |
+| `lesson [N]` | open lessons 1 to N for everyone (0 hides them; no N: how many are open, and the facilitator link) |
 | `status` | up or not, current and next map, waiting and playing, house bots, top 5 |
 | `open` | open `/watch` and `/standings` in the browser |
 | `down` | stop the house bots and the arena |

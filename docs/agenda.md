@@ -3,16 +3,26 @@
 2.5 hours, at most 12 participants. The facilitator's plan: what happens when, and what each pit
 stop teaches. Participants never see this page; they follow `/mission`.
 
+## Before the start
+
+- VPN off on the server laptop: the VPN routes all of `10.0.0.0/8`, and `serve` puts its first
+  address into the brief, `/mission` and the slides. Check the URLs `serve` prints.
+- `/slides` loads reveal.js and its fonts from the internet: the projector laptop needs it.
+- In two terminals: `scripts/arena.fish up --fresh -m cavern -m classic`, then
+  `scripts/arena.fish house` and `scripts/arena.fish open`. Everything below, the slides
+  included, is served by this arena.
+- Open the lessons link `serve` prints (`/lessons?key=...`) on your own screen, not the projector.
+
 ## Timeline
 
-- **0:00–0:10 Intro.** The slides: `docs/slides/intro.html`.
-- **0:10–0:20 Fly by hand** on `/fly` to feel the physics. Meanwhile, in two terminals:
-  `scripts/arena.fish up --fresh -m cavern -m classic`, then `scripts/arena.fish house` and
-  `scripts/arena.fish open`.
+- **0:00–0:10 Intro.** The slides on `/slides`.
+- **0:10–0:20 Fly by hand** on `/fly` to feel the physics. Fly under another name than the bot
+  will use (`anna-h`, not `anna`): a name flown by hand stays marked human on the leaderboard.
+  Bot names are 1-12 of `A-Z a-z 0-9 _ -`: no accents.
 - **0:20–0:55 Chapter 1, Get flying:** hello, liftoff, touchdown.
   The first prompt sets the contract: start from `uv run spacetaxi new-bot bot.py` and fly it
   with `spacetaxi connect`. Without it the offline eval can't load the bot.
-- **Pit stop 1** at touchdown.
+- **Pit stop 1** at touchdown. Close `/fly` now: hand-flown taxis take arena seats.
 - **~1:05 Break**, 10 minutes.
 - **1:15–1:55 Chapter 2, Earn:** fare, paid, clean.
 - **Pit stop 2** at paid.
@@ -26,6 +36,9 @@ stop teaches. Participants never see this page; they follow `/mission`.
   - a 60-second "defend your design" from a few volunteers.
 
 The fast ones keep going through the chapter talks; nothing is gated by the clock.
+
+Seats: 3 arenas of 4, so 12 taxis per wave, the two house bots included. Once 10 or more
+participants are connected, `scripts/arena.fish unhouse`, or someone sits out every wave.
 
 ## Pit stops
 
@@ -72,7 +85,7 @@ for the whole room, called when half the participants have reached their milesto
 
 ## Lessons
 
-The take-home of the evening: six lessons on `/lessons` (text in `docs/lessons.md`). Each opens
+The take-home of the workshop: six lessons on `/lessons` (text in `docs/lessons.md`). Each opens
 after the experience that teaches it, never up front: it names what the participant just went
 through, and nobody can one-shot the event from them.
 
@@ -102,5 +115,5 @@ the offline eval says they win. The bot itself stays deterministic: a move must 
 
 ## Open
 
-- The pit stops are not in `/mission` yet. Planned: a pit stop step that must be ticked before
+- The pit stops show on `/watch`, not in `/mission` yet. Planned: a pit stop step that must be ticked before
   the next goal shows, so the fastest players don't skip them.

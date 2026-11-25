@@ -1,4 +1,4 @@
-"""The "simple" house bot: no search, a few straight lines, flown slowly.
+"""The greedy house bot: no search, a few straight lines, flown slowly.
 
 Target: the passenger's destination when carrying one, otherwise the nearest waiting passenger
 by Manhattan distance (whatever they pay and wherever they go: deliberately weak).

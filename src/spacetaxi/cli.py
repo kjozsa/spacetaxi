@@ -425,7 +425,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
         print(f"at most {args.max_bots_per_ip} bots per IP address, {args.max_bots} in all "
               "(house bots aside)")
         print("type `map NAME` + Enter to switch the next wave's map, `maps` to list them, "
-              "`kick NAME`, `ban NAME`, `unban NAME`; Ctrl-C stops" if reading
+              "`kick NAME`, `ban NAME`, `unban NAME`, `lesson N`; Ctrl-C stops" if reading
               else "Ctrl-C stops", flush=True)
         stop = asyncio.Event()
         try:  # a plain kill (SIGTERM) stops the server like Ctrl-C, so the pipe is removed
