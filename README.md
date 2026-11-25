@@ -129,6 +129,10 @@ started last, or the one picked at the bottom right, with the leaderboard beside
 rounds it shows the INSERT COIN splash with the queue length and the plan of the next wave (its
 number, map and countdown, a column per arena, the waitlist); during rounds a compact NEXT WAVE
 box sits under the leaderboard, which shows every name (the rows shrink to fit) and the wave.
+`/watch?bot=NAME` follows one bot on a participant's laptop: no click, the sound off (the SOUND
+button turns it on), the bot's taxi ringed, its arena at every round, and a banner when it sits a
+wave out or is not connected; on plain `/watch` the picker offers `FOLLOW NAME` for the name
+`/mission` stored.
 `/mission` shows under the goal where the followed bot plays: `NOW: arena 2, round ends in 41 s`,
 `NEXT: wave 6, arena 1 with anna, bob, gus — in ~55 s`, `WAITLIST #2: plays in wave 7 at the
 latest` or `not connected`. Click once to start the sound.

@@ -831,7 +831,7 @@ function isFollowed(player) {
 
 // The running arena slot whose round has the followed bot, or 0.
 function followedSlot() {
-  for (const k of live.running) if (live.slots[k] && hasName(live.slots[k].players)) return k;
+  for (const k of live.running) if (hasName(live.slots[k].players)) return k;
   return 0;
 }
 
@@ -860,7 +860,7 @@ function followUpdate() {
   if (followBot.on) {
     const name = followBot.name.toUpperCase(), connected = followConnected();
     const out = connected && live.running.size
-      && ![...live.wave].some(k => live.slots[k] && hasName(live.slots[k].players));
+      && ![...live.wave].some(k => hasName(live.slots[k].players));
     if (!out) followBot.outSince = 0;
     else if (!followBot.outSince) {
       followBot.outSince = performance.now();
@@ -872,10 +872,11 @@ function followUpdate() {
     const next = followBot.board && followBot.board.next_wave;
     if (next) {
       const i = next.arenas.findIndex(hasName), w = next.waitlist.findIndex(sameName);
-      const seats = next.arenas.reduce((n, names) => n + names.length, 0);
       if (i >= 0) seat = `${name}: ARENA ${i + 1} IN WAVE ${next.wave}`;
-      else if (w >= 0) seat = `${name}: WAITLIST #${w + 1}, PLAYS IN WAVE `
-                              + `${next.wave + 1 + Math.floor(w / seats)} AT THE LATEST`;
+      else if (w >= 0) {
+        const seats = next.arenas.reduce((n, names) => n + names.length, 0);
+        seat = `${name}: WAITLIST #${w + 1}, PLAYS IN WAVE ${next.wave + 1 + Math.floor(w / seats)} AT THE LATEST`;
+      }
     }
   }
   st.followNote = note;
@@ -1197,9 +1198,11 @@ function startLive() {
                                     milestones: [], followed: null, followNote: null });
   // ?bot=NAME follows that bot from the start, silently and without the INSERT COIN click (a
   // participant's laptop); plain /watch only offers the name /mission stored, as an option.
-  const asked = (new URLSearchParams(location.search).get("bot") || "").trim();
+  // A value no bot could be named (see NAME_RE) is ignored, as if not given.
+  const valid = v => (v = (v || "").trim(), NAME_RE.test(v) ? v : "");
+  const asked = valid(new URLSearchParams(location.search).get("bot"));
   let stored = "";
-  try { stored = (localStorage.getItem(NAME_KEY) || "").trim(); } catch (err) { /* private mode */ }
+  try { stored = valid(localStorage.getItem(NAME_KEY)); } catch (err) { /* private mode */ }
   followBot.name = asked || stored || null;
   if (asked) {
     followBot.on = true; live.follow = false; window.spacetaxi.follow = false;
