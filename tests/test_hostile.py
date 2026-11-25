@@ -486,3 +486,40 @@ def test_kick_disconnects_a_bot_that_does_not_read(serve, tmp_path):
     assert "- deaf left" in srv.output(), "kicked, but still connected 5 s later"
     deaf.close()
     srv.stop()
+
+
+# connects to /spectate and streams empty text messages (masked with a zero key) until killed,
+# connecting again whenever the server drops it
+SPECTATOR_FLOOD = """
+import socket, sys, time
+chunk = bytes([0x81, 0x80, 0, 0, 0, 0]) * 40000
+while True:
+    try:
+        s = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=5)
+        s.sendall(b"GET /spectate HTTP/1.1\\r\\nHost: x\\r\\nUpgrade: websocket\\r\\n"
+                  b"Connection: Upgrade\\r\\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\\r\\n"
+                  b"Sec-WebSocket-Version: 13\\r\\n\\r\\n")
+        s.recv(4096)
+        while True:
+            s.sendall(chunk)
+    except OSError:
+        time.sleep(0.05)
+"""
+
+
+def test_spectators_streaming_messages_do_not_stall_the_ticks(serve):
+    srv = serve()
+    bot = Raw(srv.port)
+    bot.hello("rider")
+    probe = Probe(srv.port)
+    probe.start()
+    wait_round(probe)
+    floods = [subprocess.Popen([sys.executable, "-c", SPECTATOR_FLOOD, str(srv.port)])
+              for _ in range(4)]  # processes of their own, so they cannot slow the probe's loop
+    try:
+        assert_rhythm(probe)
+    finally:
+        for p in floods:
+            p.kill()
+            p.wait(timeout=5)
+    srv.stop()
