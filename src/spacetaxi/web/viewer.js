@@ -45,7 +45,8 @@ const splash = document.getElementById("splash");
 // sound, whether the sound is muted, how many taxis thrust right now (the hum's volume),
 // whether the INSERT COIN splash has been clicked (the round may play, the sound is on) and
 // whether the AudioContext has been set up, whether the debug overlay (key D) is on and the
-// text of each taxi's debug bubble ("" for none, in player order; all "" with the overlay off),
+// text of each taxi's debug bubble ("" for none, in player order; all "" with the overlay off,
+// but the followed bot's on /watch?bot=NAME),
 // each taxi's drawn centre on the 1920x1080 stage (`[x, y]`, null when crashed, in player
 // order), the texts of the destination tags drawn, their boxes on the stage (`[x, y, w, h]`, in
 // the same order) and the ids of the pads pulsing as the
@@ -577,7 +578,8 @@ function debugPath(d) {
 }
 
 // The debug overlay: each taxi's planned path as a dotted neon line from the taxi, and its
-// debug text in a bubble above its name, both in its colour. `at` holds the taxis' centres.
+// debug text in a bubble above its name, both in its colour. `at` holds the centres of the
+// taxis to draw it for.
 function drawOverlay(tk, at) {
   const C = R.C, k = C / 32;
   const bubbles = R.data.players.map(() => "");
@@ -690,7 +692,9 @@ function draw(tnow, dt) {
     }
   }
   drawEffects(dt);
-  if (window.spacetaxi.overlay) drawOverlay(tk, at);
+  // D shows every taxi's debug; without it, /watch?bot=NAME still shows the followed one's.
+  const debugOf = window.spacetaxi.overlay ? at : at.filter(([p]) => hooks.followed(R.data.players[p]));
+  if (debugOf.length) drawOverlay(tk, debugOf);
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   if (i === ticks.length - 1 && !FLY && (!LIVE || R.data.over)) drawPodium(tk);
