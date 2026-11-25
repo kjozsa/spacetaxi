@@ -699,6 +699,31 @@ def test_plain_watch_shows_no_debug_until_d(browser, two_arenas):
     assert errors == []
 
 
+def test_watch_bot_debug_goes_with_following(browser, two_arenas):
+    base, server = two_arenas
+    page, errors = open_watch(browser, base, "BOT3")
+    only = "window.spacetaxi.bubbles.filter(b => b).join() === 'bot3 here'"
+    page.wait_for_function(only, timeout=15000)
+
+    # picking an arena stops following, so no debug shows without D; following brings it back
+    page.select_option("#round", "1")
+    page.wait_for_function("window.spacetaxi.followed === null")
+    for _ in range(5):
+        assert not any(state(page)["bubbles"])
+        page.wait_for_timeout(100)
+    page.select_option("#round", "bot")
+    page.wait_for_function(only, timeout=15000)
+
+    # in the next wave too, wherever bot3 is dealt, nobody else's debug shows
+    first = live_arenas(base)[state(page)["arena"]]["round"]
+    page.wait_for_function(f"window.spacetaxi.round > {first} && {only}", timeout=20000)
+    for _ in range(5):
+        assert [b for b in state(page)["bubbles"] if b] in ([], ["bot3 here"])
+        page.wait_for_timeout(100)
+    page.close()
+    assert errors == []
+
+
 @pytest.fixture
 def thirteen(serve_arena):
     """13 scripted bots on a server with 3 arenas (12 seats): one sits out every wave."""
