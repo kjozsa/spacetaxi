@@ -163,13 +163,10 @@ The facilitator's timeline and pit stops are in [docs/agenda.md](docs/agenda.md)
 Open the intro slides at `http://HOST:8000/slides` (reveal.js from [docs/slides/intro.html](docs/slides/intro.html),
 the server's address filled in; arrows or Space page through, `S` opens the speaker notes).
 
-Hand out the participant card: `http://HOST:8000/card` (from
-[docs/participant-card.md](docs/participant-card.md), with the server's real address filled in;
-`serve` prints the URL) has the server's URLs, the milestones, the points and a first prompt. Put
-it on the projector at the start and leave it open on phones. Participants give their agents the
-brief, `http://HOST:8000/brief` (raw Markdown at `/brief.md`, from [docs/brief.md](docs/brief.md)),
-not the card: the milestones are for the people, who slice the work one small prompt per
-milestone. During the race keep `/standings` on the projector.
+Participants follow `http://HOST:8000/mission`: their next milestone, and the first prompt with
+the server's address and their name filled in (`serve` prints the URL). Their agents read the
+brief, `http://HOST:8000/brief` (raw Markdown at `/brief.md`, from [docs/brief.md](docs/brief.md));
+the milestones are for the people, who slice the work one small prompt per milestone. During the race keep `/standings` on the projector.
 For a mid-race twist that shows whose agent built a general bot rather than one tuned to one map,
 start `serve` with every map you may use (`--map cavern --map canyon`) and type `map canyon` in
 its terminal (or, with `serve --control PATH`, write it into that named pipe:
@@ -214,7 +211,7 @@ keeps its state (standings, log, replays, pid files, bot logs, the control pipe)
 | `map NAME`, `maps` | switch the next wave's map, list the maps (answered in `up`'s output) |
 | `kick NAME`, `ban NAME`, `unban NAME` | disconnect a bot, ban its name, lift a ban (answered in `up`'s output) |
 | `status` | up or not, current and next map, waiting and playing, house bots, top 5 |
-| `open [--card]` | open `/watch` and `/standings` (and `/card`) in the browser |
+| `open` | open `/watch` and `/standings` in the browser |
 | `down` | stop the house bots and the arena |
 
 A workshop run, `up` in one terminal and the rest in another:
@@ -222,7 +219,7 @@ A workshop run, `up` in one terminal and the rest in another:
 ```fish
 scripts/arena.fish up --fresh -m cavern -m classic   # a new race; Ctrl-C or down stops it
 scripts/arena.fish house                             # one pilot and one greedy fill the rounds
-scripts/arena.fish open --card                       # watch, standings and the card
+scripts/arena.fish open                              # watch and standings
 scripts/arena.fish map classic                       # the mid-race twist
 scripts/arena.fish down                              # the end
 ```

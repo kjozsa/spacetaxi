@@ -109,7 +109,7 @@ def build_standings_html() -> str:
 
 
 def build_doc_html(text: str, title: str) -> str:
-    """A Markdown document (`spacetaxi serve`'s `/card` and `/brief`) as a page in the
+    """A Markdown document (`spacetaxi serve`'s `/brief`) as a page in the
     viewer's neon style."""
     import html
 

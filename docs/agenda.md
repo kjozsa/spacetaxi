@@ -8,7 +8,7 @@ stop teaches. Participants never see this page; they follow `/mission`.
 - **0:00–0:10 Intro.** The slides: `docs/slides/intro.html`.
 - **0:10–0:20 Fly by hand** on `/fly` to feel the physics. Meanwhile, in two terminals:
   `scripts/arena.fish up --fresh -m cavern -m classic`, then `scripts/arena.fish house` and
-  `scripts/arena.fish open --card`.
+  `scripts/arena.fish open`.
 - **0:20–0:55 Chapter 1, Get flying:** hello, liftoff, touchdown.
   The first prompt sets the contract: start from `uv run spacetaxi new-bot bot.py` and fly it
   with `spacetaxi connect`. Without it the offline eval can't load the bot.

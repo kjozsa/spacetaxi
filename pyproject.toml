@@ -24,7 +24,6 @@ packages = ["src/spacetaxi"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "docs/brief.md" = "spacetaxi/docs/brief.md"
-"docs/participant-card.md" = "spacetaxi/docs/participant-card.md"
 "docs/missions.md" = "spacetaxi/docs/missions.md"
 "docs/lessons.md" = "spacetaxi/docs/lessons.md"
 "docs/slides/intro.html" = "spacetaxi/docs/slides/intro.html"

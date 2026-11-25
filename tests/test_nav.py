@@ -30,7 +30,7 @@ def links(page: str) -> list[tuple[str, bool]]:
 
 def test_every_served_page_has_the_bar_marking_itself():
     s = server()
-    assert PAGES == ["/", "/watch", "/standings", "/mission", "/lessons", "/fly", "/card", "/brief",
+    assert PAGES == ["/", "/watch", "/standings", "/mission", "/lessons", "/fly", "/brief",
                      "/slides"]
     for path in PAGES + ["/index.html"]:
         status, kind, body = s.http(path)
@@ -50,7 +50,7 @@ def test_watch_puts_the_links_into_its_own_bar():
 
 def test_pages_other_than_watch_get_the_fixed_bar():
     s = server()
-    for path in ("/fly", "/slides", "/", "/card"):
+    for path in ("/fly", "/slides", "/", "/brief"):
         page = s.http(path)[2].decode("utf-8")
         assert '<nav class="sitenav"' in page and "<!--NAV-->" not in page, path
         assert page.index('<nav class="sitenav"') < page.rindex("</body>"), path

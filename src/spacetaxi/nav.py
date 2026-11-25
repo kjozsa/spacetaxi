@@ -16,7 +16,7 @@ WEB_DIR = Path(__file__).parent / "web"
 
 NAV_PAGES = (("/", "LEADERBOARD"), ("/watch", "WATCH"), ("/standings", "STANDINGS"),
              ("/mission", "MISSION"), ("/lessons", "LESSONS"), ("/fly", "FLY"),
-             ("/card", "CARD"), ("/brief", "BRIEF"),
+             ("/brief", "BRIEF"),
              ("/slides", "SLIDES"))
 
 PLACEHOLDER = "<!--NAV-->"

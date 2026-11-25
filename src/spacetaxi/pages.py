@@ -3,9 +3,8 @@
 `/` is the leaderboard page and `/leaderboard.json` its data. `/fly` is the page to fly in the
 arena by hand: a `/bot` client in the browser with the neon viewer. `/watch` is the neon viewer
 fed live from `/spectate`. `/standings` is the projector page of the milestone race and
-`/standings.json` its data. `/card` is the participant card and `/brief` the agent brief
-(`docs/participant-card.md`, `docs/brief.md`, rendered, with `address` filled in for HOST:PORT;
-`/brief.md` is the raw Markdown). `/mission` is each participant's own page: their next
+`/standings.json` its data. `/brief` is the agent brief (`docs/brief.md`,
+rendered, with `address` filled in for HOST:PORT; `/brief.md` is the raw Markdown). `/mission` is each participant's own page: their next
 milestone only, from `docs/missions.md`, polling `/standings.json`. `/slides` is the intro deck
 (`docs/slides/intro.html`, self-contained, HOST:8000 filled in). `/lessons` is the
 workshop's lessons (`docs/lessons.md`): each opens when the followed bot reaches its milestone or
@@ -28,8 +27,7 @@ WEB_DIR = Path(__file__).parent / "web"
 LESSONS_JSON = re.compile(r"/lessons/[A-Za-z0-9_-]{1,12}\.json")  # a bot name, as hello allows
 
 # the Markdown documents the server serves: path -> (file in docs/, page title)
-DOC_PAGES = {"/card": ("participant-card.md", "Spacetaxi: participant card"),
-             "/brief": ("brief.md", "Spacetaxi: brief"),
+DOC_PAGES = {"/brief": ("brief.md", "Spacetaxi: brief"),
              "/brief.md": ("brief.md", "")}
 
 

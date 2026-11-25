@@ -403,7 +403,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
     async def serve() -> None:
         hosts = lan_addresses() or ["localhost"]
-        arena.address = f"{hosts[0]}:{args.port}"  # the address the card and brief give out
+        arena.address = f"{hosts[0]}:{args.port}"  # the address the brief and mission give out
         server = await arena.start(None, args.port)
         names = list(maps)
         print(f"arena on {names[0]}" + (f" (maps: {', '.join(names)})" if len(names) > 1 else "")
@@ -413,7 +413,6 @@ def cmd_serve(args: argparse.Namespace) -> int:
             print(f"  leaderboard http://{host}:{args.port}/   bots ws://{host}:{args.port}/bot   "
                   f"fly by hand http://{host}:{args.port}/fly   "
                   f"standings http://{host}:{args.port}/standings   "
-                  f"card http://{host}:{args.port}/card   "
                   f"mission http://{host}:{args.port}/mission")
         if args.house:
             print(f"house bots (never score): {', '.join(args.house)}")

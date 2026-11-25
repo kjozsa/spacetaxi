@@ -1,6 +1,6 @@
-"""A small Markdown renderer for the server's `/brief` and `/card` pages.
+"""A small Markdown renderer for the server's `/brief` page.
 
-It knows what `docs/brief.md` and `docs/participant-card.md` use: `#` headings, paragraphs,
+It knows what `docs/brief.md` uses: `#` headings, paragraphs,
 `-` and `1.` lists (an item continues on lines indented under it), fenced code blocks, and
 inline `` `code` ``, `**bold**` and `[links](url)`. Everything else is a paragraph of text.
 All text is HTML-escaped.

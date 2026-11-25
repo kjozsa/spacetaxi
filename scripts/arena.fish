@@ -16,7 +16,7 @@ function usage
     echo "  unban NAME         accept a banned name again"
     echo "  lesson [N]         open lessons 1 to N on every /lessons page (0 hides; no N: how many)"
     echo "  status             is it up, the map, who plays, the house bots, the top 5"
-    echo "  open [--card]      open /watch and /standings (and /card) in the browser"
+    echo "  open               open /watch and /standings in the browser"
     echo "  down               stop the house bots and the arena started by up"
     echo "options:"
     echo "  -p, --port    the arena's port (default 8000)"
@@ -49,7 +49,7 @@ if not contains -- $cmd up house unhouse map maps kick ban unban lesson status o
     exit 2
 end
 
-argparse h/help 'p/port=' 'm/map=+' fresh 'r/rule=+' 'f/fill=' 'n/number=' card -- $argv
+argparse h/help 'p/port=' 'm/map=+' fresh 'r/rule=+' 'f/fill=' 'n/number=' -- $argv
 or begin
     usage >&2
     exit 2
@@ -228,7 +228,6 @@ if not rows:
         set opener (command -s xdg-open; or command -s open)
         test -n "$opener"; or fail "open: no xdg-open or open to start the browser with"
         set pages watch standings
-        set -q _flag_card; and set -a pages card
         for page in $pages
             $opener http://localhost:$port/$page >/dev/null 2>&1 &
             disown $last_pid

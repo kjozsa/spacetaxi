@@ -288,7 +288,7 @@ class ArenaServer(Plan, Race, Admission, Pages):
         self.next_wave_ns: int | None = None  # when the next wave starts; None while a wave runs
         self.init_plan()  # the next wave's arenas (names) and waitlist, every connected bot
         self.init_pages()
-        self.address: str | None = None  # HOST:PORT for the card and brief; set by start()
+        self.address: str | None = None  # HOST:PORT for the brief and mission; set by start()
         if self.log and self.log.exists():
             self.rounds, self.wave = self.leaderboard.load(self.log)
         if self.replays:
