@@ -88,17 +88,24 @@ def check_move(move, tick: int, in_process: bool = False) -> str:
     return "ok" if t == tick else "late"
 
 
+DEBUG_TEXT = 200  # a debug text (or `say`) is cut to this many characters
+DEBUG_PATH = 200  # a debug `path` is cut to this many cells
+
+
 def clean_debug(debug) -> str | dict | None:
     """A move's `debug` as docs/rules.md allows it: free text, or an object with an optional
-    `say` text and an optional `path` of `[x, y]` integer cells; None when there is none."""
+    `say` text and an optional `path` of `[x, y]` integer cells; None when there is none.
+    Texts are cut to `DEBUG_TEXT` characters, the path to `DEBUG_PATH` cells."""
     if isinstance(debug, str):
-        return debug
+        return debug[:DEBUG_TEXT]
     if not isinstance(debug, dict):
         return None
     out = {}
     if isinstance(debug.get("say"), str):
-        out["say"] = debug["say"]
+        out["say"] = debug["say"][:DEBUG_TEXT]
     path = debug.get("path")
+    if isinstance(path, (list, tuple)):
+        path = path[:DEBUG_PATH]
     if isinstance(path, (list, tuple)) and all(
             isinstance(p, (list, tuple)) and len(p) == 2 and all(type(c) is int for c in p)
             for p in path):

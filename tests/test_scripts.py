@@ -1,4 +1,4 @@
-"""scripts/arena.fish end to end: up, house, status, map, unhouse, down on a free port."""
+"""scripts/arena.fish end to end: up, house, status, map, kick, ban, unhouse, down on a free port."""
 
 import os
 import shutil
@@ -106,6 +106,13 @@ def test_arena_script_up_house_status_map_unhouse_down():
         assert maps[0] == "cavern"
         assert maps[maps.index("classic"):] == ["classic"] * (len(maps) - maps.index("classic"))
         assert "next cavern" not in arena("status", port=port).stdout
+
+        for cmd in ("kick", "ban", "unban"):
+            sent = arena(cmd, "nobody", port=port)
+            assert sent.returncode == 0, sent.stderr
+        assert until(lambda: "kick: no bot 'nobody' connected" in out.read_text()
+                     and "unbanned nobody" in out.read_text(), 10)
+        assert arena("kick", port=port).returncode != 0
 
         gone = arena("unhouse", "all", port=port)
         assert gone.returncode == 0 and "ace" in gone.stdout and "gus" in gone.stdout

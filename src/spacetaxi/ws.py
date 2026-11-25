@@ -16,13 +16,15 @@ import base64
 import hashlib
 import os
 import struct
+import sys
 from urllib.parse import urlsplit
 
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 CONT, TEXT, BINARY, CLOSE, PING, PONG = 0x0, 0x1, 0x2, 0x8, 0x9, 0xA
 
-MAX_MESSAGE = 16 * 1024 * 1024  # refuse anything bigger, so a bad peer cannot eat the memory
+MAX_MESSAGE = 16 * 1024 * 1024  # the default limit: refuse anything bigger, so a bad peer
+# cannot eat the memory; `serve` takes a smaller one per path
 
 REASONS = {101: "Switching Protocols", 200: "OK", 400: "Bad Request", 404: "Not Found",
            426: "Upgrade Required"}
@@ -30,6 +32,10 @@ REASONS = {101: "Switching Protocols", 200: "OK", 400: "Bad Request", 404: "Not 
 
 class WebSocketError(Exception):
     """A protocol violation by the peer, or a frame too big."""
+
+
+class TooBig(WebSocketError):
+    """A frame or message over the limit; raised from the frame header, the payload unread."""
 
 
 def accept_key(key: str) -> str:
@@ -66,9 +72,11 @@ def encode_frame(opcode: int, payload: bytes, mask: bool, fin: bool = True) -> b
     return bytes(head) + payload
 
 
-async def read_frame(reader: asyncio.StreamReader) -> tuple[bool, int, bytes, bool]:
+async def read_frame(reader: asyncio.StreamReader,
+                     limit: int = MAX_MESSAGE) -> tuple[bool, int, bytes, bool]:
     """The next frame as `(fin, opcode, payload, masked)`, the payload unmasked.
-    Raises `asyncio.IncompleteReadError` when the stream ends."""
+    Raises `asyncio.IncompleteReadError` when the stream ends, `TooBig` (before reading the
+    payload) for a frame over `limit` bytes."""
     b0, b1 = await reader.readexactly(2)
     if b0 & 0x70:
         raise WebSocketError("reserved bits set")
@@ -78,8 +86,8 @@ async def read_frame(reader: asyncio.StreamReader) -> tuple[bool, int, bytes, bo
         (n,) = struct.unpack("!H", await reader.readexactly(2))
     elif n == 127:
         (n,) = struct.unpack("!Q", await reader.readexactly(8))
-    if n > MAX_MESSAGE:
-        raise WebSocketError(f"frame of {n} bytes is too big")
+    if n > limit:
+        raise TooBig(f"frame of {n} bytes is too big")
     if opcode >= 0x8 and (n > 125 or not fin):
         raise WebSocketError("bad control frame")
     key = await reader.readexactly(4) if masked else None
@@ -91,11 +99,15 @@ async def read_frame(reader: asyncio.StreamReader) -> tuple[bool, int, bytes, bo
 
 class WebSocket:
     """One open WebSocket. `client=True` on the client side: its frames are masked, and it
-    expects unmasked frames from the server (and the other way round)."""
+    expects unmasked frames from the server (and the other way round). A message over
+    `max_message` bytes ends `recv` with None and sets `too_big`: the socket can still send
+    (an error message, say) before `close`, which then drops it without waiting."""
 
     def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
-                 client: bool, path: str = "/"):
+                 client: bool, path: str = "/", max_message: int = MAX_MESSAGE):
         self.reader = reader
+        self.max_message = max_message
+        self.too_big = False
         self.writer = writer
         self.client = client
         self.path = path
@@ -105,8 +117,12 @@ class WebSocket:
 
     @property
     def peer(self) -> str:
+        return peer_of(self.writer)
+
+    @property
+    def ip(self) -> str:
         peer = self.writer.get_extra_info("peername")
-        return f"{peer[0]}:{peer[1]}" if peer else "?"
+        return str(peer[0]) if peer else "?"
 
     async def _send_frame(self, opcode: int, payload: bytes) -> None:
         async with self._lock:
@@ -133,9 +149,13 @@ class WebSocket:
         kind = None
         while not self.closed:
             try:
-                fin, opcode, payload, masked = await read_frame(self.reader)
+                fin, opcode, payload, masked = await read_frame(
+                    self.reader, max(125, self.max_message - sum(len(p) for p in parts)))
                 if masked == self.client:
                     raise WebSocketError("frame masked the wrong way")
+            except TooBig:
+                self.too_big = True
+                return None
             except (asyncio.IncompleteReadError, ConnectionError, WebSocketError, OSError) as e:
                 await self._abort(1002 if isinstance(e, WebSocketError) else None)
                 return None
@@ -155,6 +175,9 @@ class WebSocket:
                 kind, parts = opcode, [payload]
             elif opcode == CONT and kind is not None:
                 parts.append(payload)
+                if sum(len(p) for p in parts) > self.max_message:
+                    self.too_big = True
+                    return None
             else:
                 await self._abort(1002)
                 return None
@@ -167,9 +190,6 @@ class WebSocket:
                 except UnicodeDecodeError:
                     await self._abort(1007)
                     return None
-            if sum(len(p) for p in parts) > MAX_MESSAGE:
-                await self._abort(1009)
-                return None
         return None
 
     async def _finish_close(self, code: int) -> None:
@@ -181,6 +201,11 @@ class WebSocket:
             except (ConnectionError, OSError):
                 pass
         await self._abort(None)
+
+    async def abort(self, code: int = 1008) -> None:
+        """Send a close frame with `code` and drop the connection at once, not waiting for the
+        peer; a `recv` waiting meanwhile returns None."""
+        await self._abort(code)
 
     async def _abort(self, code: int | None) -> None:
         if code is not None and not self._close_sent:
@@ -200,6 +225,9 @@ class WebSocket:
         """Send a close frame, wait (up to `timeout` s) for the peer's close, then disconnect."""
         if self.closed:
             return
+        if self.too_big:  # the rest of the peer's message is still coming: do not read it
+            await self._abort(1009)
+            return
         if not self._close_sent:
             self._close_sent = True
             try:
@@ -210,7 +238,8 @@ class WebSocket:
         try:
             async with asyncio.timeout(timeout):
                 while not self.closed:
-                    fin, opcode, payload, masked = await read_frame(self.reader)
+                    fin, opcode, payload, masked = await read_frame(self.reader,
+                                                                    self.max_message)
                     if opcode == CLOSE:
                         break
         except (TimeoutError, asyncio.IncompleteReadError, ConnectionError, WebSocketError,
@@ -242,10 +271,12 @@ def http_response(status: int, content_type: str, body: bytes,
 
 
 async def serve(ws_routes: dict, http_handler=None, host: str | None = None,
-                port: int = 8000) -> asyncio.Server:
+                port: int = 8000, max_message: dict[str, int] | None = None) -> asyncio.Server:
     """Start a server answering WebSocket upgrades on the paths of `ws_routes` and other `GET`s
     with `http_handler(path) -> (status, content_type, body) | None`. Returns the started
-    `asyncio.Server`; `host=None` listens on every interface."""
+    `asyncio.Server`; `host=None` listens on every interface. `max_message` maps a path to the
+    biggest message its sockets accept (`MAX_MESSAGE` for the others). An exception escaping
+    a handler is printed as one line to stderr; the server goes on."""
 
     async def on_connection(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         try:
@@ -267,7 +298,8 @@ async def serve(ws_routes: dict, http_handler=None, host: str | None = None,
                     b"Connection: Upgrade\r\nSec-WebSocket-Accept: "
                     + accept_key(key).encode("ascii") + b"\r\n\r\n")
                 await writer.drain()
-                ws = WebSocket(reader, writer, client=False, path=path)
+                ws = WebSocket(reader, writer, client=False, path=path,
+                               max_message=(max_message or {}).get(path, MAX_MESSAGE))
                 try:
                     await ws_routes[path](ws, path)
                 finally:
@@ -286,6 +318,9 @@ async def serve(ws_routes: dict, http_handler=None, host: str | None = None,
             await writer.drain()
         except (ConnectionError, OSError):
             pass
+        except Exception as exc:  # a bug or a hostile peer: one line, never a traceback
+            print(f"! {peer_of(writer)}: {type(exc).__name__} {str(exc)[:200]}",
+                  file=sys.stderr, flush=True)
         finally:
             writer.close()
             try:
@@ -294,6 +329,11 @@ async def serve(ws_routes: dict, http_handler=None, host: str | None = None,
                 pass
 
     return await asyncio.start_server(on_connection, host, port, reuse_address=True)
+
+
+def peer_of(writer: asyncio.StreamWriter) -> str:
+    peer = writer.get_extra_info("peername")
+    return f"{peer[0]}:{peer[1]}" if peer else "?"
 
 
 async def connect(url: str, timeout: float = 10.0) -> WebSocket:

@@ -20,6 +20,9 @@ WebSocket `ws://HOST:PORT/bot`, one JSON object per text frame.
 
 If something is wrong the server sends `error` with a `code` and closes the connection.
 
+- Size limit: keep messages small (a move, a short `debug`); a huge one gets `too_big`.
+- Rate limit: one move per tick; a burst within one tick gets `flooding` (bots per address are capped too).
+
 ## Flying
 
 - `ax`: `-1` left jet, `0` none, `1` right jet. `ay`: `-1` main engine (up), `0` none.

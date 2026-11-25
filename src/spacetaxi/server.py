@@ -55,6 +55,14 @@ The server can have several maps (`maps`, the first is the start map). `command`
 the operator typed (`map NAME`, `maps`): `map NAME` sets the map of the next wave; the wave in
 progress finishes on its map. All arenas of a wave play one map, named in `round_start` as
 `map_name`, and their `beat_greedy` / `beat_pilot` compare against that map's benchmarks.
+`kick NAME` disconnects a bot; `ban NAME` disconnects it, refuses the name from then on and
+leaves it out of the standings, the leaderboard and the plan (bans are kept in the standings
+file); `unban NAME` lifts it.
+
+Hostile clients (docs/rules.md, Limits): a bot's message over `BOT_MAX_MESSAGE` bytes gets
+`too_big`, more than `FLOOD_MESSAGES` in one tick `flooding`, and the connection is closed;
+`max_bots_per_ip` and `max_bots` (None: no cap) cap the bots connected at once (`too_many`,
+`full`), house bots aside. An exception in one connection's handler is logged as one line.
 """
 
 import asyncio
@@ -84,6 +92,11 @@ PROTOCOL = 1
 ARENA_SIZE = 4
 MAX_ARENAS = 3
 HELLO_TIMEOUT = 10  # seconds a new connection has to say hello
+BOT_MAX_MESSAGE = 64 * 1024  # bytes: a bigger message from a bot gets `too_big` and is closed
+SPECTATE_MAX_MESSAGE = 4 * 1024  # spectators send nothing
+FLOOD_MESSAGES = 20  # more messages than this from one bot within one tick: `flooding`
+MAX_BOTS_PER_IP = 4  # `serve`'s default for bots connected at once from one IP, house bots aside
+MAX_BOTS = 40  # `serve`'s default for bots connected at once, house bots aside
 OUTBOX_TICKS = 8  # a tick is dropped for a bot that has this many messages still unsent
 DEAL_TRIES = 200  # shuffles tried per deal; the one whose groups have met least wins
 
@@ -177,9 +190,10 @@ class Bot:
 class Leaderboard:
     """Totals per name, from `round_end` log records."""
 
-    def __init__(self, house=()):
+    def __init__(self, house=(), banned=None):
         self.rows: dict[str, dict] = {}
         self.house = {n.lower() for n in house}  # names marked as house bots, ignoring case
+        self.banned = banned if banned is not None else set()  # lowercased, left out of table
 
     def add(self, record: dict) -> None:
         for r in record["results"]:
@@ -195,6 +209,8 @@ class Leaderboard:
         """One row per name, best average money first."""
         out = []
         for name, row in self.rows.items():
+            if name.lower() in self.banned:
+                continue
             out.append({
                 "name": name,
                 "rounds": row["rounds"],
@@ -359,9 +375,12 @@ class ArenaServer:
                  log: str | Path | None = None, replays: str | Path | None = None,
                  seed: int | None = None, max_arenas: int = MAX_ARENAS, say=None,
                  standings: str | Path | None = None,
-                 benchmarks: dict[str, dict[str, int]] | None = None, house=()):
+                 benchmarks: dict[str, dict[str, int]] | None = None, house=(),
+                 max_bots_per_ip: int | None = None, max_bots: int | None = None):
         """`maps` are the maps to choose from by name (the first starts); `benchmarks` gives
         known ones as `{map name: {bot: money}}`."""
+        self.max_bots_per_ip = max_bots_per_ip
+        self.max_bots = max_bots
         self.maps = dict(maps)
         self.map_name = next(iter(self.maps))  # the map of the current (or last) wave
         self.next_map = self.map_name  # the map the next wave plays
@@ -381,7 +400,8 @@ class ArenaServer:
         self.tasks: set[asyncio.Task] = set()
         # the house bots' names, lowercased (names ignore case): they never score milestones
         self.house = {n.lower() for n in house}
-        self.leaderboard = Leaderboard(self.house)
+        self.standings = Standings(standings)
+        self.leaderboard = Leaderboard(self.house, self.standings.banned)
         self.rounds = 0
         self.wave = 0
         self.wave_t0 = 0  # perf_counter_ns when the running wave's clock started
@@ -392,7 +412,6 @@ class ArenaServer:
         self.said_plan = ""  # the plan as last printed
         self.met: dict[frozenset, int] = {}  # rounds each pair of names has shared
         self.last_groups: set[frozenset] = set()  # the previous wave's groups
-        self.standings = Standings(standings)
         # per map, the money beat_greedy / beat_pilot must beat; None until simulated
         self.map_benchmarks: dict[str, dict[str, int | None]] = {
             name: {bot: None for bot in BENCHMARK_BOTS} for name in self.maps}
@@ -441,7 +460,55 @@ class ArenaServer:
             self.next_map = name
             self.plan_changed()
             return f"next wave: {name}"
-        return "commands: map NAME (the next wave's map), maps (list them)"
+        if words[0] in ("kick", "ban", "unban") and len(words) == 2:
+            return getattr(self, words[0])(words[1])
+        return ("commands: map NAME (the next wave's map), maps (list them), kick NAME, "
+                "ban NAME, unban NAME")
+
+    def connected(self, name: str) -> Bot | None:
+        """The connected bot of `name`, ignoring case."""
+        return next((b for n, b in self.bots.items() if n.lower() == name.lower()), None)
+
+    def disconnect(self, bot: Bot, code: str, message: str) -> None:
+        """Tell `bot` why and drop its connection; its handler then cleans up."""
+        async def drop():
+            await bot.stop()
+            await self.error(bot.sock, code, message)
+            await bot.sock.abort(1008)
+        self._spawn(drop())
+
+    def kick(self, name: str) -> str:
+        bot = self.connected(name)
+        if bot is None:
+            return f"kick: no bot {name!r} connected"
+        self.disconnect(bot, "kicked", "the operator disconnected you")
+        return f"kicked {bot.name}"
+
+    def ban(self, name: str) -> str:
+        key = name.lower()
+        if key in self.standings.banned:
+            return f"ban: {name!r} is already banned"
+        bot = self.connected(name)
+        self.standings.banned.add(key)
+        self.standings.save()
+        if bot is not None:
+            self.disconnect(bot, "banned", "the operator banned this name")
+        self.plan_order_drop(key)
+        return f"banned {name}" + (" and disconnected it" if bot else "")
+
+    def unban(self, name: str) -> str:
+        key = name.lower()
+        if key not in self.standings.banned:
+            return f"unban: {name!r} is not banned"
+        self.standings.banned.discard(key)
+        self.standings.save()
+        return f"unbanned {name}"
+
+    def plan_order_drop(self, key: str) -> None:
+        """Take a (banned) name out of the plan of the next wave, ignoring case."""
+        for name in self.plan_order():
+            if name.lower() == key:
+                self.plan_leave(name)
 
     # --- HTTP
 
@@ -475,7 +542,7 @@ class ArenaServer:
                 self.standings_page = with_nav(build_standings_html(), path).encode("utf-8")
             return 200, "text/html; charset=utf-8", self.standings_page
         if path == "/standings.json":
-            data = {"standings": self.standings.table(self.house),
+            data = {"standings": self.standings.table(self.house | self.standings.banned),
                     "milestones": list(MILESTONES), "points": list(POINTS),
                     "map_name": self.map_name, "benchmarks": self.benchmarks,
                     "reached": {m: self.standings.reached(m) for m in MILESTONES}}
@@ -506,7 +573,9 @@ class ArenaServer:
         return None
 
     async def start(self, host: str | None = None, port: int = 8000) -> asyncio.Server:
-        server = await ws.serve({"/bot": self.handle, "/spectate": self.spectate}, self.http, host, port)
+        server = await ws.serve({"/bot": self.handle, "/spectate": self.spectate}, self.http,
+                                host, port, {"/bot": BOT_MAX_MESSAGE,
+                                             "/spectate": SPECTATE_MAX_MESSAGE})
         if self.address is None:
             self.address = f"{host or 'localhost'}:{server.sockets[0].getsockname()[1]}"
         self._spawn(self.scheduler())
@@ -546,6 +615,7 @@ class ArenaServer:
     def award(self, milestone: str, entries: list[tuple[str, int]]) -> None:
         """Score `entries` reaching `milestone` together (see `Standings.award`), log every
         award, tell the spectators and save the standings."""
+        entries = [e for e in entries if e[0].lower() not in self.standings.banned]
         awards = self.standings.award(milestone, entries)
         for a in awards:
             self.say(f"* milestone {a['milestone']}: {a['name']} P{a['place']} +{a['points']}")
@@ -790,6 +860,8 @@ class ArenaServer:
         try:
             while await sock.recv() is not None:
                 pass
+        except Exception as exc:
+            self.say(f"! spectator {sock.peer}: {type(exc).__name__} {str(exc)[:200]}")
         finally:
             self.spectators.discard(spectator)
             await spectator.stop()
@@ -797,7 +869,7 @@ class ArenaServer:
     async def error(self, sock: ws.WebSocket, code: str, message: str) -> None:
         try:
             await sock.send(dumps({"type": "error", "code": code, "message": message}))
-        except ConnectionError:
+        except (ConnectionError, OSError):
             pass
 
     def spelling(self, name: str) -> str | None:
@@ -810,12 +882,23 @@ class ArenaServer:
         return None
 
     async def handle(self, sock: ws.WebSocket, path: str) -> None:
+        """A bot's connection: its hello, then its moves until it leaves. Any exception is
+        logged as one line, not raised."""
+        try:
+            await self.serve_bot(sock)
+        except Exception as exc:
+            self.say(f"! {getattr(sock, 'bot_name', None) or sock.peer}: "
+                     f"{type(exc).__name__} {str(exc)[:200]}")
+
+    async def serve_bot(self, sock: ws.WebSocket) -> None:
         try:
             async with asyncio.timeout(HELLO_TIMEOUT):
                 text = await sock.recv()
         except TimeoutError:
             return await self.error(sock, "bad_message", f"no hello within {HELLO_TIMEOUT} s")
         if text is None:
+            if sock.too_big:
+                await self.error(sock, "too_big", f"messages are at most {BOT_MAX_MESSAGE} bytes")
             return
         hello = parse(text)
         if hello is None or hello.get("type") != "hello":
@@ -826,25 +909,46 @@ class ArenaServer:
         if type(hello.get("protocol")) is not int or hello["protocol"] != PROTOCOL:
             return await self.error(sock, "bad_protocol",
                                     f"this server speaks protocol {PROTOCOL}")
+        if name.lower() in self.standings.banned:
+            return await self.error(sock, "banned", f"name {name!r} is banned")
         if name in self.bots:
             return await self.error(sock, "name_taken", f"name {name!r} is already connected")
         spelling = self.spelling(name)
         if spelling is not None and spelling != name:
             return await self.error(sock, "name_taken", f"name {name!r} is taken as {spelling!r}; "
                                                         f"connect as {spelling!r}")
+        house = name.lower() in self.house
+        if not house:
+            guests = [b for n, b in self.bots.items() if n.lower() not in self.house]
+            if self.max_bots is not None and len(guests) >= self.max_bots:
+                return await self.error(sock, "full", f"the arena is full ({self.max_bots} bots)")
+            if self.max_bots_per_ip is not None and sum(
+                    b.sock.ip == sock.ip for b in guests) >= self.max_bots_per_ip:
+                return await self.error(sock, "too_many", f"at most {self.max_bots_per_ip} bots "
+                                                          "from one address at once")
         human = hello.get("client") == "human"
         bot = Bot(name, sock, human=human)
+        sock.bot_name = name
         self.bots[name] = bot
-        house = name.lower() in self.house
         self.say(f"+ {name} joined from {sock.peer}" + (" (human)" if human else "")
                  + (" (house)" if house else ""))
         bot.send({"type": "welcome", "id": name, "rules": self.rules.to_dict()})
         if not human and not house:
             self.award("hello", [(name, 0)])
         self.enqueue(bot)
+        tick_ns = self.rules.tick_ms * 1_000_000
+        window, count = 0, 0  # the start of the current tick-long window, messages in it
         try:
             while (text := await sock.recv()) is not None:
                 now = time.perf_counter_ns()
+                if now - window >= tick_ns:
+                    window, count = now, 0
+                count += 1
+                if count > FLOOD_MESSAGES:
+                    await bot.stop()
+                    await self.error(sock, "flooding", f"more than {FLOOD_MESSAGES} messages "
+                                                       "within one tick")
+                    return
                 msg = parse(text)
                 if msg is None or msg.get("type") != "move":
                     await bot.stop()
@@ -853,6 +957,9 @@ class ArenaServer:
                     return
                 if bot.arena is not None:
                     bot.arena.on_move(bot, msg, now)
+            if sock.too_big:
+                await bot.stop()
+                await self.error(sock, "too_big", f"messages are at most {BOT_MAX_MESSAGE} bytes")
         finally:
             await bot.stop()
             if self.bots.get(name) is bot:
@@ -870,6 +977,6 @@ def parse(text) -> dict | None:
         return None
     try:
         msg = json.loads(text)
-    except ValueError:
+    except (ValueError, RecursionError):  # deeply nested JSON is no message either
         return None
     return msg if isinstance(msg, dict) else None

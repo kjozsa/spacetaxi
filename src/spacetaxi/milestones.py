@@ -87,9 +87,11 @@ class Standings:
     def __init__(self, path: str | Path | None = None):
         self.path = Path(path) if path else None
         self.awards: dict[str, dict[str, dict]] = {}  # name -> milestone -> {place, points}
+        self.banned: set[str] = set()  # names the operator banned, lowercased
         if self.path and self.path.exists():
             data = json.loads(self.path.read_text(encoding="utf-8"))
             try:
+                self.banned = {str(n).lower() for n in data.get("banned", [])}
                 for name, got in data["awards"].items():
                     self.awards[name] = {m: {"place": int(a["place"]),
                                              "points": int(a["points"])}
@@ -128,7 +130,8 @@ class Standings:
         if not self.path:
             return
         tmp = self.path.with_name(self.path.name + ".tmp")
-        tmp.write_text(json.dumps({"awards": self.awards}, indent=1) + "\n", encoding="utf-8")
+        tmp.write_text(json.dumps({"awards": self.awards, "banned": sorted(self.banned)},
+                                  indent=1) + "\n", encoding="utf-8")
         os.replace(tmp, self.path)
 
     def table(self, leave_out=()) -> list[dict]:

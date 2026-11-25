@@ -91,7 +91,7 @@ def test_markdown_renders_both_docs():
         html = render((DOCS / name).read_text(encoding="utf-8"))
         assert "```" not in html and "**" not in html and "\n#" not in html
     brief = render((DOCS / "brief.md").read_text(encoding="utf-8"))
-    assert brief.count("<li>") == 13 and brief.count("<ol>") == 1
+    assert brief.count("<li>") == 15 and brief.count("<ol>") == 1
     card = render((DOCS / "participant-card.md").read_text(encoding="utf-8"))
     assert "<pre><code>Read brief.md." in card
 
