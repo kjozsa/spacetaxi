@@ -20,9 +20,9 @@ pytest.importorskip("playwright.sync_api")
 RULES = Rules(tick_ms=100, deadline_ms=80, round_ticks=40)
 
 
-async def scripted_bot(port: int, name: str) -> None:
+async def scripted_bot(port: int, name: str, sock=None) -> None:
     """Joins and answers every tick: up on even ticks, with a debug text and path."""
-    sock = await ws.connect(f"ws://127.0.0.1:{port}/bot")
+    sock = sock or await ws.connect(f"ws://127.0.0.1:{port}/bot")
     await sock.send(json.dumps({"type": "hello", "name": name, "protocol": 1}))
     while (text := await sock.recv()) is not None:
         msg = json.loads(text)
@@ -550,5 +550,52 @@ def test_plain_watch_offers_the_stored_name_without_following(browser, two_arena
     assert s["arena"] == arena_of(base, "bot5") and not s["follow"]
     page.wait_for_function("window.spacetaxi.marked.includes('bot5')", timeout=5000)
     assert not state(page)["muted"] and state(page)["audio"]   # the sound stays as it was
+    page.close()
+    assert errors == []
+
+
+def test_watch_bot_m_key_creates_the_audio_and_the_picker_returns_to_following(browser, two_arenas):
+    base, server = two_arenas
+    page, errors = open_follow(browser, base, "bot3")
+    page.wait_for_function("window.spacetaxi.running.length === 2 && window.spacetaxi.tick > 2",
+                           timeout=15000)
+    page.keyboard.press("m")
+    s = state(page)
+    assert s["audio"] and not s["muted"] and page.locator("#sound").inner_text() == "SOUND ON"
+
+    page.select_option("#round", "follow")
+    page.wait_for_function("window.spacetaxi.follow && window.spacetaxi.followed === null")
+    assert selected(page) == "FOLLOW LATEST" and page.locator("#seat").text_content() == ""
+    page.select_option("#round", "bot")
+    page.wait_for_function("window.spacetaxi.followed === 'bot3' && !window.spacetaxi.follow")
+    page.wait_for_function("window.spacetaxi.marked.includes('bot3')", timeout=10000)
+    assert state(page)["arena"] == arena_of(base, "bot3") and not state(page)["muted"]
+    page.close()
+    assert errors == []
+
+
+def test_watch_bot_follows_a_late_joiner_until_it_leaves(browser, serve_arena):
+    server = ArenaServer({"cavern": load_map("cavern")}, RULES, 0.5, seed=1, max_arenas=3)
+    ports = []
+
+    def start(loop, port):
+        ports.append(port)
+        return [loop.create_task(scripted_bot(port, f"bot{i}")) for i in range(4)]
+
+    base, server, loop = serve_arena(server, start)
+    page, errors = open_follow(browser, base, "late")
+    page.wait_for_function("window.spacetaxi.followNote === 'LATE IS NOT CONNECTED'", timeout=10000)
+
+    def on_server(coro):
+        return asyncio.run_coroutine_threadsafe(coro, loop)
+
+    sock = on_server(ws.connect(f"ws://127.0.0.1:{ports[0]}/bot")).result(10)
+    on_server(scripted_bot(ports[0], "Late", sock))
+    # following starts with its next round
+    page.wait_for_function("window.spacetaxi.marked.includes('Late')", timeout=20000)
+    s = state(page)
+    assert s["followNote"] is None and s["arena"] == arena_of(base, "Late")
+    on_server(sock.abort(1000)).result(10)
+    page.wait_for_function("window.spacetaxi.followNote === 'LATE IS NOT CONNECTED'", timeout=20000)
     page.close()
     assert errors == []
