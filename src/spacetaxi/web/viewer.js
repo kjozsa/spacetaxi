@@ -809,8 +809,8 @@ fontReady.then(() => {
 const LIVE_STATES = { flying: FLYING, landed: LANDED, crashed: CRASHED };
 const LIVE_LAG = 3;          // ticks behind the newest one before the view jumps ahead
 const SPLASH_AFTER = 5000;   // ms the podium stays up after the last round ends, before the splash
-const live = { slots: {}, running: new Set(), latest: 0, follow: true, slot: 0, arenas: 0,
-               idleSince: -Infinity, waiting: 0 };
+const live = { slots: {}, running: new Set(), wave: new Set(), latest: 0, follow: true, slot: 0,
+               arenas: 0, idleSince: -Infinity, waiting: 0 };
 
 function compactTick(players, tick, upc) {
   const byId = Object.fromEntries((tick.taxis || []).map(t => [t.id, t]));
@@ -854,12 +854,15 @@ function pickArena(value) {
   roundSel.value = value;
 }
 
+// Each arena option names its round's players; an arena without a round in the current wave
+// (`live.wave`, the slots whose round started since the last time none ran) is EMPTY.
 function liveOptions() {
   const value = live.follow ? "follow" : String(live.slot);
   const opts = [["follow", "FOLLOW LATEST"]];
   for (let k = 1; k <= live.arenas; k++) {
     const d = live.slots[k];
-    opts.push([String(k), `ARENA ${k}` + (d && !d.over ? ` R${d.round}` : " IDLE")]);
+    const names = d && live.wave.has(k) ? d.players.map(n => n.toUpperCase()).join(" ") : "";
+    opts.push([String(k), `ARENA ${k} \u00b7 ${names || "EMPTY"}`]);
   }
   roundSel.replaceChildren(...opts.map(([v, text]) => {
     const o = document.createElement("option"); o.value = v; o.textContent = text; return o;
@@ -901,7 +904,7 @@ function showMilestone(msg) {
 function onLive(msg) {
   if (msg.type === "milestone") { showMilestone(msg); return; }
   if (msg.type === "spectate") {
-    live.arenas = msg.arenas; live.slots = {}; live.running.clear();
+    live.arenas = msg.arenas; live.slots = {}; live.running.clear(); live.wave.clear();
     liveOptions();
     return;
   }
@@ -913,6 +916,8 @@ function onLive(msg) {
                          players: msg.players, humans: msg.humans || [],
                          house: msg.house || [], rules, ticks: [],
                          over: false };
+    if (!live.running.size) live.wave.clear();   // all arenas of a wave start together
+    live.wave.add(slot);
     live.running.add(slot);
     live.latest = slot;
     liveOptions();

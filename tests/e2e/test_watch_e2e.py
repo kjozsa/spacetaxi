@@ -116,6 +116,66 @@ def test_watch_follows_switches_and_reports_the_live_tick(browser, two_arenas):
     assert errors == []
 
 
+def picker(page):
+    return page.locator("#round option").all_inner_texts()
+
+
+def expected_picker(arenas, slots=3):
+    return ["FOLLOW LATEST"] + [
+        f"ARENA {k} \u00b7 " + (" ".join(n.upper() for n in arenas[k]["players"])
+                               if k in arenas else "EMPTY")
+        for k in range(1, slots + 1)]
+
+
+def test_watch_picker_names_each_arenas_players(browser, two_arenas):
+    base, server = two_arenas
+    page, errors = open_watch(browser, base)
+    page.wait_for_function("window.spacetaxi.running.length === 2", timeout=15000)
+
+    arenas = live_arenas(base)
+    assert sorted(arenas) == [1, 2] and all(len(a["players"]) == 4 for a in arenas.values())
+    first = {k: a["round"] for k, a in arenas.items()}
+    page.wait_for_function("document.querySelectorAll('#round option').length === 4")
+    assert picker(page) == expected_picker(arenas)
+    assert not any(re.search(r"R\d|IDLE", o) for o in picker(page))
+
+    # After the rounds end, the names stay until the next wave starts.
+    page.wait_for_function("window.spacetaxi.idle", timeout=15000)
+    assert picker(page) == expected_picker(arenas)
+
+    # The next wave deals new groups, and the options follow them.
+    page.wait_for_function("window.spacetaxi.running.length === 2", timeout=15000)
+    page.wait_for_function("window.spacetaxi.tick > 1", timeout=10000)
+    arenas = live_arenas(base)
+    assert all(a["round"] > first[k] for k, a in arenas.items())
+    assert picker(page) == expected_picker(arenas)
+    assert not any(re.search(r"R\d|IDLE", o) for o in picker(page))
+    page.close()
+    assert errors == []
+
+
+def test_watch_picker_empties_an_arena_the_next_wave_does_not_fill(browser, serve_arena):
+    server = ArenaServer({"cavern": load_map("cavern")}, RULES, 1.0, seed=1, max_arenas=3)
+    base, server, loop = serve_arena(server, lambda loop, port: [
+        loop.create_task(scripted_bot(port, f"bot{i}")) for i in range(8)])
+    page, errors = open_watch(browser, base)
+    page.wait_for_function("window.spacetaxi.running.length === 2", timeout=15000)
+    page.select_option("#round", "2")
+
+    # Half the bots leave between the waves: the next one fills only arena 1.
+    page.wait_for_function("window.spacetaxi.idle", timeout=15000)
+    two = picker(page)
+    for i in range(4, 8):
+        loop.call_soon_threadsafe(server.kick, f"bot{i}")
+    page.wait_for_function("window.spacetaxi.running.length === 1", timeout=15000)
+    arenas = live_arenas(base)
+    assert sorted(arenas) == [1] and len(arenas[1]["players"]) == 4
+    assert picker(page) == expected_picker(arenas) != two
+    assert page.locator("#round").input_value() == "2"   # the picked arena stays picked
+    page.close()
+    assert errors == []
+
+
 def test_watch_shows_insert_coin_with_the_queue_between_rounds(browser, lonely):
     base, server = lonely
     page, errors = open_watch(browser, base)
