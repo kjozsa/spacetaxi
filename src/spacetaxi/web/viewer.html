@@ -95,6 +95,16 @@ body.live #bar { justify-content: flex-end; }
 /* every name shows: with many rows, viewer.js shrinks --fs and --pad until they all fit */
 #lb li { display: flex; gap: 12px; font-size: var(--fs, 16px); line-height: 1; padding: var(--pad, 11px) 0; border-bottom: 1px solid var(--line); }
 /* The compact plan of the next wave under the leaderboard: one line per arena, one for the waitlist. */
+/* the next pit stop: under the leaderboard and on the splash; pink and blinking once due */
+#lbPit { flex: none; margin-top: 14px; padding: 10px 12px; border: 2px solid #ffd23f; font-size: 12px; line-height: 1.6; color: #ffd23f; }
+#lbPit:empty, #splash .pit:empty { display: none; }
+#lbPit .meter, #splash .pit .meter { display: flex; gap: 3px; margin-top: 6px; }
+#lbPit .meter i, #splash .pit .meter i { flex: 1; height: 8px; background: var(--line); }
+#lbPit .meter i.on, #splash .pit .meter i.on { background: #ffd23f; box-shadow: 0 0 6px #ffd23f; }
+#lbPit.due { color: #ff3df0; border-color: #ff3df0; text-shadow: 0 0 8px #ff3df0; animation: blink 1s steps(2) infinite; }
+#splash .pit { font-size: 24px; line-height: 1.7; color: #ffd23f; text-shadow: 0 0 10px #ffd23f; min-width: 520px; }
+#splash .pit.due { color: #ff3df0; text-shadow: 0 0 10px #ff3df0; animation: blink 1s steps(2) infinite; }
+@media (prefers-reduced-motion: reduce) { #lbPit.due, #splash .pit.due { animation: none; } }
 #lbNext { flex: none; margin-top: 14px; padding-top: 12px; border-top: 2px solid #7a5cff; font-size: 11px; line-height: 1.5; }
 #lbNext:empty { display: none; }
 #lbNext div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #2ef2ff; }
@@ -197,6 +207,7 @@ body.fly #bar { justify-content: flex-end; }
     <span class="coin">INSERT COIN &mdash; CLICK TO START</span>
     <span class="queue" id="queue"></span>
     <span class="nextmap" id="nextMap"></span>
+    <span class="pit" id="pit"></span>
     <span class="plan" id="plan"></span>
     <span class="hint">SPACE PLAY/PAUSE &middot; 1-4 SPEED &middot; C SCREEN &middot; M OR SOUND BUTTON MUTE &middot; D DEBUG</span>
   </button>
@@ -205,6 +216,7 @@ body.fly #bar { justify-content: flex-end; }
     <h2>LEADERBOARD</h2>
     <div class="sub" id="lbSub">AVG $ PER ROUND</div>
     <ol id="lbRows"></ol>
+    <div id="lbPit" aria-live="polite"></div>
     <div id="lbNext"></div>
   </aside>
   <div id="bar" role="group" aria-label="Playback">

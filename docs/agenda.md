@@ -29,7 +29,15 @@ The fast ones keep going through the chapter talks; nothing is gated by the cloc
 
 ## Pit stops
 
-The bot keeps racing during a pit stop, so nothing is lost by stopping.
+The bot keeps racing during a pit stop, so nothing is lost by stopping. Pit stops 1 and 2 are
+for the whole room, called when half the participants have reached their milestone:
+
+- `/watch` shows the next one under the leaderboard and on the splash ("PIT STOP 1 AT
+  TOUCHDOWN, 2 OF 6 NEEDED"), and it turns pink, "DUE", at half the room. `serve` says it too.
+- Call it then, or at the clock time (0:55, 1:45) if the room is slow.
+- After it, open its lesson for everyone (`scripts/arena.fish lesson 3`, then `lesson 4`): that
+  also ends the pit stop on `/watch`, which moves on to the next.
+- Pit stop 3 has no milestone: you call it at the map twist.
 
 ### 1. Evidence before guessing (~10 min, at touchdown)
 

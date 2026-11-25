@@ -135,16 +135,18 @@ def parse_missions(text: str) -> list[dict]:
 
 
 def parse_lessons(text: str) -> list[dict]:
-    """The lessons of `docs/lessons.md`: one `{n, after, lesson, why, try}` per `## N` section,
-    in file order, from its `After:`, `Lesson:`, `Why:` and `Try:` lines."""
+    """The lessons of `docs/lessons.md`: one `{n, after, pitstop, lesson, why, try}` per `## N`
+    section, in file order, from its `After:`, `Pit stop:`, `Lesson:`, `Why:` and `Try:` lines
+    (`pitstop` is "" without one)."""
     out = []
     for section in text.split("\n## ")[1:]:
         head, *lines = section.splitlines()
-        fields = {"n": int(head.strip()), "after": "", "lesson": "", "why": "", "try": ""}
+        fields = {"n": int(head.strip()), "after": "", "pitstop": "", "lesson": "", "why": "",
+                  "try": ""}
         for line in lines:
             key, sep, value = line.partition(":")
-            if sep and key in ("After", "Lesson", "Why", "Try"):
-                fields[key.lower()] = value.strip()
+            if sep and key in ("After", "Pit stop", "Lesson", "Why", "Try"):
+                fields[key.lower().replace(" ", "")] = value.strip()
         out.append(fields)
     return out
 

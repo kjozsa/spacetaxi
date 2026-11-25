@@ -29,6 +29,7 @@ class Race:
         for name, values in (benchmarks or {}).items():
             self.map_benchmarks[name].update(values)
         self.pending: list[tuple] = []  # (wave, tick, milestone, name, key) not yet scored
+        self.pitstops_said: set[int] = set()  # pit stops the operator was told are due
 
     @property
     def benchmarks(self) -> dict[str, int | None]:
@@ -73,6 +74,16 @@ class Race:
                 spectator.send(message)
         if awards:
             self.standings.save()
+            self.say_pitstop()
+
+    def say_pitstop(self) -> None:
+        """Tell the operator, once, that the next pit stop is due."""
+        stop = self.pitstop()
+        if stop and stop["due"] and stop["number"] not in self.pitstops_said:
+            self.pitstops_said.add(stop["number"])
+            self.say(f"pit stop {stop['number']} is due: {stop['reached']} of "
+                     f"{stop['participants']} participants have {stop['milestone']}; after it, "
+                     f"open its lesson for everyone: lesson {stop['lesson']}")
 
     def flush(self, wave: int) -> None:
         """Score the pending milestones of `wave` from every tick that all of its running

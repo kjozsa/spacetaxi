@@ -8,6 +8,11 @@ whole room once the facilitator reveals it (`lesson N` in `serve`'s terminal,
 from the beginning; `After: reveal` waits for the facilitator. The facilitator sees all six at
 `/lessons?key=KEY`, the key `serve` prints at the start (and `lesson` answers with).
 
+A lesson with `Pit stop:` follows a pit stop the whole room takes together: the pit stop is due
+once half the participants have reached that milestone, `/watch` shows it coming, and it is over
+when the facilitator opens its lesson for everyone (`lesson N`). Pit stops are numbered in file
+order.
+
 `Lesson:` is the rule, written about agents in general: the line to take home. `Why:` is the
 reason, with evidence from the rehearsals. `Try:` is the habit to keep from now on (shown as FROM NOW ON).
 
@@ -25,12 +30,14 @@ Try: Have the bot log what it does each round, and have the agent read those log
 
 ## 3
 After: fare
+Pit stop: touchdown
 Lesson: Make the loop fast, and measure, don't eyeball.
 Why: A live round takes 75 seconds, and one round is noise. In rehearsal, a participant who compared builds on single live rounds chased noise for half an hour.
 Try: Have the agent build a local copy of the game from what the bot has seen, and an eval that plays 100 rounds in seconds. A build goes live only if it beats the last one.
 
 ## 4
 After: clean
+Pit stop: paid
 Lesson: Get fresh eyes on it.
 Why: The session that wrote the code remembers its history, not the code as it is now. In rehearsal, a fresh session's bug reports were real 65% of the time, the author's 43%, and only a fresh reviewer found the costliest bug.
 Try: Start a new agent session in the same folder. Give it bot.py, the brief and the logs, and ask for the bugs that lose money or crash, each with its line and a situation where it goes wrong. Don't say what you suspect. Then have the author check each finding before fixing it.

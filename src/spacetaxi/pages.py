@@ -11,7 +11,8 @@ workshop's lessons (`docs/lessons.md`): each opens when the followed bot reaches
 the operator reveals it (`lesson N`). The page gets them from `/lessons/NAME.json` (or
 `/lessons.json`, following no bot), which sends a locked lesson's number and `after` only. `/lessons?key=KEY` shows all of them
 for the facilitator (to review, and on the projector at the end), from
-`/lessons-all/KEY.json`; the key is random per start, printed by `serve` and by `lesson`. Every HTML page has the
+`/lessons-all/KEY.json`; the key is random per start, printed by `serve` and by `lesson`. `/leaderboard.json` carries the next pit
+stop as `pitstop` (`Pages.pitstop`), for `/watch`. Every HTML page has the
 page bar linking the others (`spacetaxi.nav`).
 """
 
@@ -78,6 +79,23 @@ class Pages:
     def lessons_url(self) -> str:
         return f"http://{self.address or 'HOST:PORT'}/lessons?key={self.lessons_key}"
 
+    def pitstop(self) -> dict | None:
+        """The next pit stop (a lesson with `Pit stop: MILESTONE` that is not revealed yet), or
+        None: its number, milestone and lesson, how many participants (the standings but house
+        bots and bans) reached the milestone, and `due` once at least half of them have."""
+        revealed = self.standings.lessons
+        stops = [(i, l) for i, l in enumerate(parse_lessons(doc_text("lessons.md"))) if l["pitstop"]]
+        for number, (i, lesson) in enumerate(stops, 1):
+            if i < revealed:
+                continue
+            rows = self.standings.table(self.house | self.standings.banned)
+            reached = sum(lesson["pitstop"] in r["milestones"] for r in rows)
+            need = max(1, -(-len(rows) // 2))
+            return {"number": number, "milestone": lesson["pitstop"], "lesson": lesson["n"],
+                    "participants": len(rows), "reached": reached, "need": need,
+                    "due": bool(rows) and reached >= need}
+        return None
+
     def lessons_for(self, name: str | None, everything: bool = False) -> dict:
         """The lessons as `name`'s page sees them: an open one whole, a locked one as its
         number and `after` only. Open: `after: start`, revealed by the operator (the first
@@ -117,7 +135,8 @@ class Pages:
                     "next_wave": {"wave": self.wave + 1, "map": self.next_map,
                                   "starts_in": self.seconds(self.next_wave_at()),
                                   "arenas": [list(g) for g in self.plan_arenas],
-                                  "waitlist": list(self.plan_waitlist)}}
+                                  "waitlist": list(self.plan_waitlist)},
+                    "pitstop": self.pitstop()}
             return 200, "application/json", json.dumps(data).encode("utf-8")
         if path == "/standings":
             if self.standings_page is None:

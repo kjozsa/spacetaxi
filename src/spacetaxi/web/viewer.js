@@ -966,6 +966,7 @@ async function loadLeaderboard() {
   lbSub.textContent = `WAVE ${data.wave} \u00b7 ${data.rounds} ROUNDS \u00b7 AVG $`;
   window.spacetaxi.wave = data.wave;
   showPlan(data.next_wave);
+  showPitstop(data.pitstop);
   if (!data.leaderboard.length) {
     const li = document.createElement("li"); li.className = "empty";
     li.textContent = "WAITING FOR THE FIRST ROUND";
@@ -1033,6 +1034,35 @@ function showPlan(next) {
     ...next.arenas.map((names, i) => div("", `${i + 1}: ${names.map(n => n.toUpperCase()).join(", ")}`)),
     ...(wait ? [div("wait", `WAIT: ${wait}`)] : []));
   planClock();
+}
+
+// The next pit stop (docs/lessons.md): how many participants have reached its milestone, of the
+// half of them it waits for; DUE once they have. Gone once the operator opens its lesson.
+const pitEl = document.getElementById("pit"), lbPit = document.getElementById("lbPit");
+function showPitstop(stop) {
+  window.spacetaxi.pitstop = stop || null;
+  if (!stop || !stop.participants) {
+    pitEl.replaceChildren(); lbPit.replaceChildren();
+    return;
+  }
+  const ms = stop.milestone.toUpperCase().replace(/_/g, " ");
+  const head = stop.due ? `PIT STOP ${stop.number} DUE` : `PIT STOP ${stop.number} AT ${ms}`;
+  const sub = stop.due ? `${stop.reached} OF ${stop.participants} HAVE ${ms}`
+                       : `${stop.reached} OF ${stop.need} NEEDED`;
+  const build = () => {
+    const meter = document.createElement("div"); meter.className = "meter";
+    for (let i = 0; i < stop.need; i++) {
+      const seg = document.createElement("i"); if (i < stop.reached) seg.className = "on";
+      meter.appendChild(seg);
+    }
+    const a = document.createElement("div"); a.textContent = head;
+    const b = document.createElement("div"); b.textContent = sub;
+    return [a, b, meter];
+  };
+  for (const el of [pitEl, lbPit]) {
+    el.classList.toggle("due", stop.due);
+    el.replaceChildren(...build());
+  }
 }
 
 function planClock() {

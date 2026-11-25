@@ -110,3 +110,41 @@ def test_the_key_shows_every_lesson_whatever_was_revealed_and_a_wrong_key_nothin
     assert s.http("/lessons-all/0000000000000000.json") is None
     assert s.lessons_key != server().lessons_key
     assert s.lessons_key not in s.http("/lessons")[2].decode("utf-8")
+
+
+def test_pit_stops_come_from_the_lessons_doc_at_touchdown_then_paid():
+    assert [(l["n"], l["pitstop"]) for l in LESSONS if l["pitstop"]] == [(3, "touchdown"), (4, "paid")]
+
+
+def test_the_next_pit_stop_is_due_at_half_the_participants_and_over_when_its_lesson_opens():
+    s = server()
+    s.house = {"ace"}
+    assert s.pitstop() == {"number": 1, "milestone": "touchdown", "lesson": 3, "participants": 0,
+                           "reached": 0, "need": 1, "due": False}
+    for name in ("anna", "bob", "cy", "dee", "ace"):
+        award(s, name, "hello")
+    award(s, "anna", "hello", "liftoff", "touchdown")
+    stop = s.pitstop()
+    assert (stop["participants"], stop["reached"], stop["need"], stop["due"]) == (4, 1, 2, False)
+    award(s, "ace", "hello", "touchdown")  # a house bot doesn't count
+    award(s, "bob", "hello", "touchdown")
+    assert s.pitstop()["due"]
+    lb = json.loads(s.http("/leaderboard.json")[2])
+    assert lb["pitstop"]["number"] == 1 and lb["pitstop"]["due"]
+    s.command("lesson 3")
+    stop = s.pitstop()
+    assert (stop["number"], stop["milestone"], stop["reached"], stop["due"]) == (2, "paid", 0, False)
+    s.command("lesson 4")
+    assert s.pitstop() is None
+
+
+def test_serve_says_once_that_a_pit_stop_is_due():
+    s = server()
+    said: list[str] = []
+    s.say = said.append
+    s.award("hello", [("anna", 1), ("bob", 1)])
+    s.award("touchdown", [("anna", 1)])
+    s.award("touchdown", [("bob", 1)])
+    due = [line for line in said if line.startswith("pit stop")]
+    assert due == ["pit stop 1 is due: 1 of 2 participants have touchdown; after it, open its "
+                   "lesson for everyone: lesson 3"]
