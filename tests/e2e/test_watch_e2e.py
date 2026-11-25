@@ -449,7 +449,7 @@ def test_watch_bot_follows_its_arena_across_waves_silently(browser, two_arenas, 
     page.wait_for_function("window.spacetaxi.running.length === 2 && window.spacetaxi.tick > 1",
                            timeout=15000)
     assert state(page)["arena"] == 1 and state(page)["followed"] is None
-    assert "bot3" not in state(page)["marked"] or arena_of(base, "bot3") == 1
+    assert "bot3" not in state(page)["marked"]
     page.close()
     assert errors == []
 
@@ -472,7 +472,7 @@ def thirteen(serve_arena):
     return run_arena(serve_arena, bots=13, fill_seconds=0.5)
 
 
-def test_watch_bot_sits_out_a_wave_on_its_last_arena(browser, thirteen):
+def test_watch_bot_sits_out_a_wave_on_its_last_arena(browser, thirteen, shots):
     base, server = thirteen
     watcher, errors = open_watch(browser, base)
     watcher.wait_for_function("window.spacetaxi.running.length === 3 && window.spacetaxi.tick > 1",
@@ -493,6 +493,7 @@ def test_watch_bot_sits_out_a_wave_on_its_last_arena(browser, thirteen):
     assert s["arena"] == last
     note = page.locator("#followNote")
     assert note.is_visible() and note.inner_text() == f"{sitter.upper()} SITS OUT THIS WAVE"
+    page.screenshot(path=str(shots / "follow-sits-out.png"))
     page.close()
     watcher.close()
     assert errors == [] and errors2 == []
