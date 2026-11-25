@@ -82,7 +82,12 @@ body.live #bar { justify-content: flex-end; }
 #splash .plan .col { display: flex; flex-direction: column; gap: 10px; min-width: 260px; text-align: left; }
 #splash .plan .col b { font-weight: normal; font-size: 18px; color: #ff3df0; text-shadow: 0 0 8px #ff3df0; }
 #splash .plan .col span { font-size: 20px; color: #2ef2ff; }
+/* /watch?bot=NAME: the followed bot in the plan, and its seat in the next wave */
+#splash .plan .col span.me { color: #ffd23f; text-shadow: 0 0 10px #ffd23f; }
+#splash .plan .col span.me::before { content: "\25b6  "; }
 #splash .plan .wait { font-size: 16px; color: var(--muted); max-width: 1500px; line-height: 1.6; }
+#splash .seat { font-size: 28px; color: #ffd23f; text-shadow: 0 0 10px #ffd23f; }
+#splash .seat:empty { display: none; }
 #lb {
   position: absolute; right: 0; top: 120px; bottom: 72px; width: 420px; box-sizing: border-box;
   padding: 28px 24px; background: rgba(7,5,15,.78); border-left: 2px solid #7a5cff;
@@ -132,6 +137,12 @@ body.live #bar { justify-content: flex-end; }
   14% { transform: scale(1); } 85% { opacity: 1; } 100% { opacity: 0; }
 }
 @media (prefers-reduced-motion: reduce) { #toasts .toast { animation: none; } }
+/* /watch?bot=NAME: why the followed bot is not on screen, in the strip between the arena and the bar */
+#followNote {
+  position: absolute; left: 750px; bottom: 76px; transform: translateX(-50%); z-index: 6;
+  pointer-events: none; white-space: nowrap; font-size: 20px; padding: 6px 16px;
+  color: #ff3df0; text-shadow: 0 0 10px #ff3df0; background: rgba(4,3,11,.85);
+}
 /* Fly mode (`spacetaxi serve`'s /fly): a person flies one taxi. The join form, the queue, the
    results, the leave button and the touch controls sit outside the scaled stage, so they keep
    their size on a phone. */
@@ -207,11 +218,13 @@ body.fly #bar { justify-content: flex-end; }
     <span class="coin">INSERT COIN &mdash; CLICK TO START</span>
     <span class="queue" id="queue"></span>
     <span class="nextmap" id="nextMap"></span>
+    <span class="seat" id="seat"></span>
     <span class="pit" id="pit"></span>
     <span class="plan" id="plan"></span>
     <span class="hint">SPACE PLAY/PAUSE &middot; 1-4 SPEED &middot; C SCREEN &middot; M OR SOUND BUTTON MUTE &middot; D DEBUG</span>
   </button>
   <div id="toasts" aria-live="polite"></div>
+  <div id="followNote" role="status" aria-live="polite" hidden></div>
   <aside id="lb" hidden aria-label="Leaderboard">
     <h2>LEADERBOARD</h2>
     <div class="sub" id="lbSub">AVG $ PER ROUND</div>

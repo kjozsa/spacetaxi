@@ -6,6 +6,7 @@ import asyncio
 import json
 import re
 import threading
+import time
 import urllib.request
 
 import pytest
@@ -20,9 +21,9 @@ pytest.importorskip("playwright.sync_api")
 RULES = Rules(tick_ms=100, deadline_ms=80, round_ticks=40)
 
 
-async def scripted_bot(port: int, name: str) -> None:
+async def scripted_bot(port: int, name: str, sock=None) -> None:
     """Joins and answers every tick: up on even ticks, with a debug text and path."""
-    sock = await ws.connect(f"ws://127.0.0.1:{port}/bot")
+    sock = sock or await ws.connect(f"ws://127.0.0.1:{port}/bot")
     await sock.send(json.dumps({"type": "hello", "name": name, "protocol": 1}))
     while (text := await sock.recv()) is not None:
         msg = json.loads(text)
@@ -50,12 +51,15 @@ def lonely(serve_arena):
     return run_arena(serve_arena, bots=1, fill_seconds=600)
 
 
-def open_watch(browser, base):
+def open_watch(browser, base, bot=None, init=None):
+    """/watch (`?bot=` when `bot` is given), with `init` run before the page's scripts."""
     page = browser.new_page(viewport={"width": 1920, "height": 1080})
     errors = []
     page.on("console", lambda m: errors.append(m.text) if m.type in ("error", "warning") else None)
     page.on("pageerror", lambda e: errors.append(str(e)))
-    page.goto(base + "/watch")
+    if init:
+        page.add_init_script(init)
+    page.goto(base + "/watch" + (f"?bot={bot}" if bot else ""))
     page.wait_for_function("window.spacetaxi && window.spacetaxi.fps > 0 && window.spacetaxi.live")
     return page, errors
 
@@ -387,5 +391,298 @@ def test_mission_shows_next_for_a_planned_name_and_waitlist_for_a_waiting_one(br
     page.fill("#askName", "nobody")
     page.click("#ask button")
     page.wait_for_function("window.spacetaxi.where === 'not connected'", timeout=10000)
+    page.close()
+    assert errors == []
+
+
+# --- /watch?bot=NAME follows one bot
+
+def arena_of(base, name):
+    return next((k for k, a in live_arenas(base).items() if name in a["players"]), None)
+
+
+def selected(page):
+    return page.evaluate("document.querySelector('#round').selectedOptions[0].textContent")
+
+
+def test_watch_bot_follows_its_arena_across_waves_silently(browser, two_arenas, shots):
+    base, server = two_arenas
+    page, errors = open_watch(browser, base, "bot3")
+    # no click: the round plays, the sound is off and not set up
+    page.wait_for_function("window.spacetaxi.running.length === 2 && window.spacetaxi.tick > 2",
+                           timeout=15000)
+    s = state(page)
+    assert s["started"] and not page.locator("#splash").is_visible()
+    assert s["followed"] == "bot3" and not s["follow"] and s["followNote"] is None
+    assert s["arena"] == arena_of(base, "bot3")
+    assert "bot3" in s["marked"]
+    assert s["muted"] and not s["audio"] and page.locator("#sound").inner_text() == "SOUND OFF"
+    assert selected(page) == "FOLLOW BOT3" and "FOLLOW LATEST" in picker(page)
+    page.wait_for_timeout(300)
+    page.screenshot(path=str(shots / "follow-bot.png"))
+
+    # the next wave deals new groups: the view goes where bot3 flies now
+    first = live_arenas(base)[s["arena"]]["round"]
+    page.wait_for_function("window.spacetaxi.idle", timeout=15000)
+    page.wait_for_function(f"window.spacetaxi.running.length === 2 && window.spacetaxi.round > {first}"
+                           " && window.spacetaxi.tick > 1", timeout=15000)
+    s = state(page)
+    assert s["arena"] == arena_of(base, "bot3") and "bot3" in s["marked"]
+
+    # the sound button turns the sound on, creating the audio then
+    page.click("#sound")
+    s = state(page)
+    assert s["audio"] and not s["muted"] and page.locator("#sound").inner_text() == "SOUND ON"
+
+    # picking an arena stops following and keeps that arena
+    page.select_option("#round", "1")
+    page.wait_for_function("window.spacetaxi.arena === 1 && window.spacetaxi.followed === null")
+    page.wait_for_function("window.spacetaxi.idle", timeout=15000)
+    page.wait_for_function("window.spacetaxi.running.length === 2 && window.spacetaxi.tick > 1",
+                           timeout=15000)
+    assert state(page)["arena"] == 1 and state(page)["followed"] is None
+    assert "bot3" not in state(page)["marked"]
+    page.close()
+    assert errors == []
+
+
+def test_watch_bot_ignores_case(browser, two_arenas):
+    base, server = two_arenas
+    page, errors = open_watch(browser, base, "BOT3")
+    page.wait_for_function("window.spacetaxi.running.length === 2 && window.spacetaxi.tick > 2",
+                           timeout=15000)
+    s = state(page)
+    assert s["arena"] == arena_of(base, "bot3") and "bot3" in s["marked"]
+    assert selected(page) == "FOLLOW BOT3"
+    page.close()
+    assert errors == []
+
+
+@pytest.fixture
+def thirteen(serve_arena):
+    """13 scripted bots on a server with 3 arenas (12 seats): one sits out every wave."""
+    return run_arena(serve_arena, bots=13, fill_seconds=0.5)
+
+
+def test_watch_bot_sits_out_a_wave_on_its_last_arena(browser, thirteen, shots):
+    base, server = thirteen
+    deadline = time.monotonic() + 15
+    while len(live_arenas(base)) < 3:
+        assert time.monotonic() < deadline, "the first wave did not start"
+        time.sleep(0.05)
+    # the plan of the next wave, made at this wave's start, names who sits it out
+    sitter = next_wave(base)["waitlist"][0]
+    last = arena_of(base, sitter)
+    assert last is not None
+    page, errors = open_watch(browser, base, sitter)
+    page.wait_for_function(f"window.spacetaxi.arena === {last}", timeout=10000)
+    assert state(page)["followNote"] is None
+    page.wait_for_function("window.spacetaxi.idle", timeout=15000)
+    page.wait_for_function("window.spacetaxi.running.length === 3", timeout=15000)
+    page.wait_for_function("window.spacetaxi.followNote !== null", timeout=5000)
+    s = state(page)
+    assert arena_of(base, sitter) is None
+    assert s["followNote"] == f"{sitter.upper()} SITS OUT THIS WAVE"
+    assert s["arena"] == last
+    note = page.locator("#followNote")
+    assert note.is_visible() and note.inner_text() == f"{sitter.upper()} SITS OUT THIS WAVE"
+    page.screenshot(path=str(shots / "follow-sits-out.png"))
+    page.close()
+    assert errors == []
+
+
+def test_watch_bot_splash_names_its_place_on_the_waitlist(browser, serve_arena):
+    # 13 bots on 12 seats; the splash returns 5 s after a wave, before the next one starts
+    base, server = run_arena(serve_arena, bots=13, fill_seconds=8)
+    deadline = time.monotonic() + 20
+    while len(live_arenas(base)) < 3:
+        assert time.monotonic() < deadline, "the first wave did not start"
+        time.sleep(0.05)
+    waiter = next_wave(base)["waitlist"][0]
+    page, errors = open_watch(browser, base, waiter.upper())
+    page.wait_for_function("window.spacetaxi.running.length === 3", timeout=5000)
+    page.wait_for_function("window.spacetaxi.idle", timeout=15000)
+    page.locator("#splash").wait_for(state="visible", timeout=10000)
+    plan = next_wave(base)
+    assert plan["waitlist"] == [waiter]
+    line = f"{waiter.upper()}: WAITLIST #1, PLAYS IN WAVE {plan['wave'] + 1} AT THE LATEST"
+    page.wait_for_function(f"document.querySelector('#seat').textContent === '{line}'", timeout=2000)
+    assert page.locator("#seat").is_visible()
+    assert page.locator("#plan span.me").count() == 0   # no arena column has it
+    assert state(page)["followNote"] is None
+    page.close()
+    assert errors == []
+
+
+def test_watch_bot_splash_shows_its_seat_in_the_next_wave(browser, lonely, shots):
+    base, server = lonely
+    page, errors = open_watch(browser, base, "bot0")
+    plan = wait_for_plan(page, base, 1)
+    page.wait_for_function("document.querySelector('#seat').textContent !== ''", timeout=10000)
+    i = next(k for k, names in enumerate(plan["arenas"]) if "bot0" in names)
+    assert page.locator("#splash").is_visible()
+    assert "INSERT COIN" not in page.locator("#splash").inner_text()
+    assert page.locator("#seat").inner_text() == f"BOT0: ARENA {i + 1} IN WAVE {plan['wave']}"
+    me = page.locator("#plan .col").nth(i).locator("span.me")
+    assert me.count() == 1 and me.inner_text().endswith("BOT0")
+    assert state(page)["followNote"] is None
+    page.wait_for_timeout(300)
+    page.screenshot(path=str(shots / "follow-seat.png"))
+    page.close()
+    assert errors == []
+
+
+def test_watch_bot_splash_after_a_wave_names_its_next_seat(browser, serve_arena):
+    # the splash comes back 5 s after the last round ends, so the next wave must be further away
+    base, server = run_arena(serve_arena, bots=8, fill_seconds=8)
+    page, errors = open_watch(browser, base, "bot3")
+    page.wait_for_function("window.spacetaxi.running.length === 2", timeout=25000)
+    page.wait_for_function("window.spacetaxi.idle", timeout=15000)
+    page.locator("#splash").wait_for(state="visible", timeout=10000)
+    plan = next_wave(base)
+    i = next(k for k, names in enumerate(plan["arenas"]) if "bot3" in names)
+    line = f"BOT3: ARENA {i + 1} IN WAVE {plan['wave']}"
+    page.wait_for_function(f"document.querySelector('#seat').textContent === '{line}'", timeout=5000)
+    assert page.locator("#plan .col").nth(i).locator("span.me").inner_text().endswith("BOT3")
+    assert page.locator("#plan span.me").count() == 1
+    assert "INSERT COIN" not in page.locator("#splash").inner_text()
+    assert state(page)["followNote"] is None
+    # and the next wave is shown from the arena the splash named
+    page.wait_for_function("window.spacetaxi.running.length === 2 && window.spacetaxi.tick > 1",
+                           timeout=15000)
+    assert state(page)["arena"] == i + 1 == arena_of(base, "bot3")
+    page.close()
+    assert errors == []
+
+
+def test_watch_bot_not_connected_plays_like_plain_watch(browser, two_arenas):
+    base, server = two_arenas
+    page, errors = open_watch(browser, base, "nobody")
+    page.wait_for_function("window.spacetaxi.followNote === 'NOBODY IS NOT CONNECTED'", timeout=10000)
+    page.wait_for_function("window.spacetaxi.running.length === 2 && window.spacetaxi.tick > 2",
+                           timeout=15000)
+    s = state(page)
+    assert s["followed"] == "nobody" and s["started"]
+    assert s["round"] == max(a["round"] for a in live_arenas(base).values())
+    assert page.locator("#followNote").inner_text() == "NOBODY IS NOT CONNECTED"
+    assert selected(page) == "FOLLOW NOBODY"
+    page.close()
+    assert errors == []
+
+
+def test_plain_watch_offers_the_stored_name_without_following(browser, two_arenas):
+    base, server = two_arenas
+    page, errors = open_watch(browser, base, None,
+                               init="localStorage.setItem('spacetaxi.name', 'bot5')")
+    page.wait_for_function("document.querySelectorAll('#round option').length === 5")
+    s = state(page)
+    assert not s["started"] and s["follow"] and s["followed"] is None and not s["muted"]
+    assert page.locator("#splash").is_visible()
+    assert "INSERT COIN" in page.locator("#splash").inner_text()
+    assert picker(page)[:2] == ["FOLLOW LATEST", "FOLLOW BOT5"] and selected(page) == "FOLLOW LATEST"
+    page.click("#splash")
+    page.wait_for_function("window.spacetaxi.running.length === 2 && window.spacetaxi.tick > 2",
+                           timeout=15000)
+    page.select_option("#round", "bot")
+    page.wait_for_function("window.spacetaxi.followed === 'bot5'")
+    s = state(page)
+    assert s["arena"] == arena_of(base, "bot5") and not s["follow"]
+    page.wait_for_function("window.spacetaxi.marked.includes('bot5')", timeout=5000)
+    assert not state(page)["muted"] and state(page)["audio"]   # the sound stays as it was
+    page.close()
+    assert errors == []
+
+
+def test_watch_bot_m_key_creates_the_audio_and_the_picker_returns_to_following(browser, two_arenas):
+    base, server = two_arenas
+    page, errors = open_watch(browser, base, "bot3")
+    page.wait_for_function("window.spacetaxi.running.length === 2 && window.spacetaxi.tick > 2",
+                           timeout=15000)
+    page.keyboard.press("m")
+    s = state(page)
+    assert s["audio"] and not s["muted"] and page.locator("#sound").inner_text() == "SOUND ON"
+
+    page.select_option("#round", "follow")
+    page.wait_for_function("window.spacetaxi.follow && window.spacetaxi.followed === null")
+    assert selected(page) == "FOLLOW LATEST" and page.locator("#seat").text_content() == ""
+    page.select_option("#round", "bot")
+    page.wait_for_function("window.spacetaxi.followed === 'bot3' && !window.spacetaxi.follow")
+    page.wait_for_function("window.spacetaxi.marked.includes('bot3')", timeout=10000)
+    assert state(page)["arena"] == arena_of(base, "bot3") and not state(page)["muted"]
+    page.close()
+    assert errors == []
+
+
+def test_watch_bot_follows_a_late_joiner_until_it_leaves(browser, serve_arena):
+    server = ArenaServer({"cavern": load_map("cavern")}, RULES, 0.5, seed=1, max_arenas=3)
+    ports = []
+
+    def start(loop, port):
+        ports.append(port)
+        return [loop.create_task(scripted_bot(port, f"bot{i}")) for i in range(4)]
+
+    base, server, loop = serve_arena(server, start)
+    page, errors = open_watch(browser, base, "late")
+    page.wait_for_function("window.spacetaxi.followNote === 'LATE IS NOT CONNECTED'", timeout=10000)
+
+    def on_server(coro):
+        return asyncio.run_coroutine_threadsafe(coro, loop)
+
+    sock = on_server(ws.connect(f"ws://127.0.0.1:{ports[0]}/bot")).result(10)
+    on_server(scripted_bot(ports[0], "Late", sock))
+    # following starts with its next round
+    page.wait_for_function("window.spacetaxi.marked.includes('Late')", timeout=20000)
+    s = state(page)
+    assert s["followNote"] is None and s["arena"] == arena_of(base, "Late")
+    on_server(sock.abort(1000)).result(10)
+    page.wait_for_function("window.spacetaxi.followNote === 'LATE IS NOT CONNECTED'", timeout=20000)
+    page.close()
+    assert errors == []
+
+
+def test_watch_bot_banner_never_flashes_while_its_bot_flies(browser, two_arenas):
+    base, server = two_arenas
+    watch = """document.addEventListener('DOMContentLoaded', () => {
+        const el = document.querySelector('#followNote');
+        window.__notes = [];
+        new MutationObserver(() => { if (!el.hidden) window.__notes.push(el.textContent); })
+          .observe(el, {attributes: true, childList: true});
+    })"""
+    page, errors = open_watch(browser, base, "bot3", init=watch)
+    # arenas start and end one message at a time, over several waves
+    page.wait_for_function("window.spacetaxi.round >= 5 && window.spacetaxi.tick > 1",
+                           timeout=40000)
+    assert page.evaluate("window.__notes") == []
+    page.close()
+    assert errors == []
+
+
+def test_watch_bot_picker_moves_the_plan_highlight_and_keeps_the_countdown(browser, lonely):
+    base, server = lonely
+    page, errors = open_watch(browser, base, "bot0")
+    wait_for_plan(page, base, 1)
+    page.wait_for_function("document.querySelector('#plan span.me') !== null", timeout=10000)
+    left = ("Number(document.querySelector('#plan').firstChild.textContent"
+            ".match(/IN (\\d+) S/)[1])")
+    before = page.evaluate(left)
+    page.wait_for_timeout(1200)
+    page.select_option("#round", "1")
+    assert page.locator("#plan span.me").count() == 0
+    assert page.locator("#seat").text_content() == ""
+    page.select_option("#round", "bot")
+    assert page.locator("#plan span.me").count() == 1
+    page.wait_for_timeout(300)
+    assert page.evaluate(left) < before
+    page.close()
+    assert errors == []
+
+
+def test_watch_bot_ignores_a_value_no_bot_could_be_named(browser, lonely):
+    base, server = lonely
+    page, errors = open_watch(browser, base, "x" * 300)
+    page.wait_for_function("window.spacetaxi.connected", timeout=10000)
+    s = state(page)
+    assert s["followed"] is None and s["followNote"] is None and not s["started"]
+    assert picker(page)[0] == "FOLLOW LATEST" and not any(o.startswith("FOLLOW X") for o in picker(page))
     page.close()
     assert errors == []
