@@ -265,8 +265,7 @@ def test_watch_rotate_picked_mid_wave_keeps_its_arena_over_a_reconnect(browser, 
     page.wait_for_function("window.__sockets.length === 2 && window.spacetaxi.connected"
                            " && window.spacetaxi.running.length === 2", timeout=10000)
     s = state(page)
-    if s["round"] <= last:   # the reconnect replayed the same wave
-        assert s["arena"] == 2
+    assert s["arena"] == 2 and s["round"] == live_arenas(base)[2]["round"]
     assert wave_start(page, base, 2, last)[0] == 1
     page.close()
     assert errors == []
