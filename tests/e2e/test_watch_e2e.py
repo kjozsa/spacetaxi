@@ -196,6 +196,42 @@ def test_watch_rotation_resumes_after_the_held_arena(browser, serve_arena):
     assert errors == []
 
 
+def test_watch_rotation_wraps_when_the_shown_arena_closes(browser, serve_arena):
+    server = ArenaServer({"cavern": load_map("cavern")}, RULES, 0.2, seed=1, max_arenas=3)
+    base, _, loop = serve_arena(server, lambda loop, port: [
+        loop.create_task(scripted_bot(port, f"bot{i}")) for i in range(8)])
+
+    async def join(names):
+        socks = [await ws.connect(base.replace("http", "ws") + "/bot") for _ in names]
+        return socks, [asyncio.create_task(scripted_bot(0, n, s)) for n, s in zip(names, socks)]
+
+    def on_server(coro):
+        return asyncio.run_coroutine_threadsafe(coro, loop).result(10)
+
+    extra, tasks = on_server(join([f"extra{i}" for i in range(4)]))
+    page, errors = open_watch(browser, base)
+    page.click("#splash")
+    shown, last = rotation(page, base, 3, 3)
+    assert shown == [1, 2, 3]
+    # four bots leave while arena 3 is on screen: the next waves have two arenas
+    async def leave():
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        for sock in extra:
+            await sock.close()
+
+    on_server(leave())
+    # the wave in progress, or one dealt before they left, may still have three
+    page.wait_for_function(f"window.spacetaxi.running.length === 2"
+                           f" && window.spacetaxi.round > {last} && window.spacetaxi.tick > 1",
+                           timeout=20000)
+    assert state(page)["arena"] == 1
+    assert rotation(page, base, 2, 3, last)[0] == [1, 2, 1]
+    page.close()
+    assert errors == []
+
+
 SOCKETS = """(() => {
   const Real = WebSocket;
   window.__sockets = [];
