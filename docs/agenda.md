@@ -14,6 +14,9 @@ same commands without `scripts/arena.fish` straight into T1 (`lesson 3` + Enter)
 
 - [ ] `git pull && uv sync` in the repo.
 - [ ] Rehearse once at home: the "30 minutes before" block, a bot connected, `down`.
+- [ ] Tell the participants to come with Claude Code installed and logged in, and `uv`
+  installed (`curl -LsSf https://astral.sh/uv/install.sh | sh`): setup is where chapter 1
+  loses its time.
 
 ### 30 minutes before
 
@@ -52,9 +55,9 @@ same commands without `scripts/arena.fish` straight into T1 (`lesson 3` + Enter)
 
    Someone arrives late: raise it (`room 13`). The standings count instead whenever they hold
    more participants than you said.
-5. Projector: `http://localhost:8000/slides` (needs internet for reveal.js). Keep the `/watch`
+6. Projector: `http://localhost:8000/slides` (needs internet for reveal.js). Keep the `/watch`
    and `/standings` tabs `open` made for later.
-6. From a phone on the venue WiFi, open `http://ADDRESS:8000/mission`: it must load.
+7. From a phone on the venue WiFi, open `http://ADDRESS:8000/mission`: it must load.
 
 ### 0:00–0:10 Intro
 
@@ -76,7 +79,12 @@ same commands without `scripts/arena.fish` straight into T1 (`lesson 3` + Enter)
   scripts/arena.fish kick anna-h
   ```
 
-### 0:20–0:55 Chapter 1, Get flying: hello, liftoff, touchdown
+### 0:20–0:45 Chapter 1, Get flying: hello, liftoff, touchdown
+
+In the 6-bot rehearsal (`out/ws6/run.md`), 5 of 6 landed within 9 minutes of the hello prompt
+and the slowest at 16; half the room had touchdown at 6.5 minutes. Expect 15-25 minutes here:
+the first 5-10 go on setup. Pit stop 1 will likely be due before 0:45.
+
 
 - Say: "Paste the prompt from `/mission` into your agent. From liftoff on, you write the
   prompts: `/mission` gives the goal and a hint."
@@ -96,10 +104,10 @@ same commands without `scripts/arena.fish` straight into T1 (`lesson 3` + Enter)
   With fewer than 8, keep them: milestones 6 to 9 need a round of at least 2 taxis.
 - Lessons 1 (at liftoff) and 2 (at touchdown) open by themselves on each `/lessons` page.
 
-### ~0:55 Pit stop 1: evidence before guessing (~10 min)
+### ~0:45 Pit stop 1: evidence before guessing (~10 min)
 
 - When: T1 prints `pit stop 1 is due: ...` and `/watch` shows PIT STOP 1 DUE in pink, or at
-  0:55, whichever is first.
+  0:45, whichever is first.
 - Run it: [Pit stop 1](#1-evidence-before-guessing-10-min-at-touchdown) below.
 - End it, which opens lesson 3 for everyone and clears it from `/watch`:
 
@@ -107,18 +115,22 @@ same commands without `scripts/arena.fish` straight into T1 (`lesson 3` + Enter)
   scripts/arena.fish lesson 3
   ```
 
-### ~1:05 Break, 10 minutes
+### ~0:55 Break, 10 minutes
 
 - Bots keep racing. Say: "Leave your bot running."
 
-### 1:15–1:55 Chapter 2, Earn: fare, paid, clean
+### 1:05–1:50 Chapter 2, Earn: fare, paid, clean
+
+The long tail starts here: in the rehearsal one participant spent 18 minutes on fare, another
+reached paid only after 70.
+
 
 - Projector: `/standings`.
 - `scripts/arena.fish status` now and then.
 
-### ~1:45 Pit stop 2: fresh-context review (~15 min)
+### ~1:35 Pit stop 2: fresh-context review (~15 min)
 
-- When: T1 prints `pit stop 2 is due: ...`, or at 1:45.
+- When: T1 prints `pit stop 2 is due: ...`, or at 1:35.
 - Run it: [Pit stop 2](#2-fresh-context-review-15-min-at-paid) below. Ask for the tally now
   (show of hands: "whose fresh session found a real bug the author missed?") and write it down
   for the debrief.
@@ -128,11 +140,14 @@ same commands without `scripts/arena.fish` straight into T1 (`lesson 3` + Enter)
   scripts/arena.fish lesson 4
   ```
 
-### 1:55–2:20 Chapter 3, Compete: hat_trick, beat_greedy, beat_pilot
+### 1:50–2:20 Chapter 3, Compete: hat_trick, beat_greedy, beat_pilot
+
+In the rehearsal 2 of 6 beat greedy in 88 minutes of racing, and nobody beat pilot.
+
 
 - `/standings` shows the two benchmarks to beat for the current map.
 
-### ~2:05 The map twist and pit stop 3 (~5 min)
+### ~2:00 The map twist and pit stop 3 (~5 min)
 
 1. Switch the next wave to classic (T1 answers `next wave: classic`):
 
@@ -196,7 +211,7 @@ standings, whichever is more; house bots and banned names never count:
 
 - `/watch` shows the next one under the leaderboard and on the splash ("PIT STOP 1 AT
   TOUCHDOWN, 2 OF 6 NEEDED"), and it turns pink, "DUE", at half the room. `serve` says it too.
-- Call it then, or at the clock time (0:55, 1:45) if the room is slow.
+- Call it then, or at the clock time (0:45, 1:35) if the room is slow.
 - After it, open its lesson for everyone (`scripts/arena.fish lesson 3`, then `lesson 4`): that
   also ends the pit stop on `/watch`, which moves on to the next.
 - Pit stop 3 has no milestone: you call it at the map twist.
