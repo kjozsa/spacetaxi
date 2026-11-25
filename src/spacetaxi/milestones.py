@@ -87,9 +87,11 @@ class Standings:
     def __init__(self, path: str | Path | None = None):
         self.path = Path(path) if path else None
         self.awards: dict[str, dict[str, dict]] = {}  # name -> milestone -> {place, points}
+        self.banned: set[str] = set()  # names the operator banned, lowercased
         if self.path and self.path.exists():
             data = json.loads(self.path.read_text(encoding="utf-8"))
             try:
+                self.banned = {str(n).lower() for n in data.get("banned", [])}
                 for name, got in data["awards"].items():
                     self.awards[name] = {m: {"place": int(a["place"]),
                                              "points": int(a["points"])}
@@ -124,11 +126,29 @@ class Standings:
             place += len(group)
         return out
 
+    def remove(self, name: str) -> None:
+        """Take `name` (ignoring case) out of the race: its awards are dropped and the names
+        behind it on each milestone move up, keeping their order and ties, with the points of
+        their new place."""
+        key = next((n for n in self.awards if n.lower() == name.lower()), None)
+        if key is None:
+            return
+        gone = self.awards.pop(key)
+        for milestone in gone:
+            got = sorted((a["place"], n) for n, m in self.awards.items()
+                         for ms, a in m.items() if ms == milestone)
+            for i, (old, n) in enumerate(got):
+                before = got[i - 1] if i else None
+                place = (self.awards[before[1]][milestone]["place"]
+                         if before and before[0] == old else i + 1)
+                self.awards[n][milestone] = {"place": place, "points": points(place)}
+
     def save(self) -> None:
         if not self.path:
             return
         tmp = self.path.with_name(self.path.name + ".tmp")
-        tmp.write_text(json.dumps({"awards": self.awards}, indent=1) + "\n", encoding="utf-8")
+        tmp.write_text(json.dumps({"awards": self.awards, "banned": sorted(self.banned)},
+                                  indent=1) + "\n", encoding="utf-8")
         os.replace(tmp, self.path)
 
     def table(self, leave_out=()) -> list[dict]:

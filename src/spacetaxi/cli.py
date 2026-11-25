@@ -23,6 +23,8 @@ from spacetaxi.viewer import build_html, make_server
 
 
 def build_parser() -> argparse.ArgumentParser:
+    from spacetaxi.server import MAX_BOTS, MAX_BOTS_PER_IP
+
     parser = argparse.ArgumentParser(
         prog="spacetaxi",
         description="spacetaxi: a bot-arena game where taxis fly on a grid and carry passengers.",
@@ -142,9 +144,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="a house bot's name: it plays, but never scores milestones and has no standings "
              "row (repeatable)")
     serve_cmd.add_argument(
+        "--max-bots-per-ip", type=int, default=MAX_BOTS_PER_IP, metavar="N",
+        help=f"at most N bots connected at once from one IP address; more get too_many "
+             f"(house bots do not count; default {MAX_BOTS_PER_IP})")
+    serve_cmd.add_argument(
+        "--max-bots", type=int, default=MAX_BOTS, metavar="N",
+        help=f"at most N bots connected at once in total; more get full (house bots do not "
+             f"count; default {MAX_BOTS})")
+    serve_cmd.add_argument(
         "--control", metavar="PATH",
         help="create a named pipe at PATH and read the terminal's commands (`map NAME`, "
-             "`maps`) from it too, one per line, e.g. echo 'map classic' > PATH; removed on exit")
+             "`maps`, `kick NAME`, `ban NAME`, `unban NAME`) from it too, one per line, e.g. "
+             "echo 'map classic' > PATH; removed on exit")
     serve_cmd.set_defaults(func=cmd_serve)
 
     connect_cmd = commands.add_parser(
@@ -371,6 +382,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
     try:
         if args.fill_seconds < 0:
             raise RuleError("--fill-seconds must not be negative")
+        if args.max_bots_per_ip < 1 or args.max_bots < 1:
+            raise RuleError("--max-bots-per-ip and --max-bots must be positive")
         rules = parse_rules(args.rule)
         if rules.tick_ms < 1 or rules.deadline_ms < 1 or rules.round_ticks < 1:
             raise RuleError("tick_ms, deadline_ms and round_ticks must be positive")
@@ -380,7 +393,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
                             replays=args.replays, seed=args.seed,
                             say=lambda text: print(text, flush=True),
                             standings=args.standings, benchmarks=benchmarks,
-                            house=args.house)
+                            house=args.house, max_bots_per_ip=args.max_bots_per_ip,
+                            max_bots=args.max_bots)
         if args.control:
             make_pipe(args.control)
     except (MapError, RuleError, OSError, ValueError, KeyError) as exc:
@@ -407,8 +421,11 @@ def cmd_serve(args: argparse.Namespace) -> int:
         if args.control:
             read_control(arena, args.control)
             print(f"commands also from the pipe {args.control}")
-        print("type `map NAME` + Enter to switch the next wave's map, `maps` to list them; "
-              "Ctrl-C stops" if reading else "Ctrl-C stops", flush=True)
+        print(f"at most {args.max_bots_per_ip} bots per IP address, {args.max_bots} in all "
+              "(house bots aside)")
+        print("type `map NAME` + Enter to switch the next wave's map, `maps` to list them, "
+              "`kick NAME`, `ban NAME`, `unban NAME`; Ctrl-C stops" if reading
+              else "Ctrl-C stops", flush=True)
         stop = asyncio.Event()
         try:  # a plain kill (SIGTERM) stops the server like Ctrl-C, so the pipe is removed
             asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, stop.set)
@@ -469,8 +486,9 @@ def parse_benchmarks(items: list[str], maps: list[str]) -> dict[str, dict[str, i
 
 
 def read_commands(arena) -> bool:
-    """Read the operator's commands (`map NAME`, `maps`) from stdin in a daemon thread, each
-    answered on stdout; only when stdin is a terminal. Returns whether it reads."""
+    """Read the operator's commands (`map NAME`, `maps`, `kick NAME`, ...) from stdin in a
+    daemon thread, each answered on stdout; only when stdin is a terminal. Returns whether it
+    reads."""
     try:
         if not sys.stdin or not sys.stdin.isatty():
             return False

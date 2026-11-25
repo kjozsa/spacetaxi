@@ -11,6 +11,9 @@ function usage
     echo "  unhouse [NAME|all] stop house bots started by house (default all)"
     echo "  map NAME           switch the next wave's map"
     echo "  maps               list the maps (the answer is in the arena's output)"
+    echo "  kick NAME          disconnect a bot"
+    echo "  ban NAME           disconnect a bot, refuse its name and drop it from the standings"
+    echo "  unban NAME         accept a banned name again"
     echo "  status             is it up, the map, who plays, the house bots, the top 5"
     echo "  open [--card]      open /watch and /standings (and /card) in the browser"
     echo "  down               stop the house bots and the arena started by up"
@@ -39,7 +42,7 @@ if test -z "$cmd"; or contains -- $cmd -h --help
     usage
     exit 0
 end
-if not contains -- $cmd up house unhouse map maps status open down
+if not contains -- $cmd up house unhouse map maps kick ban unban status open down
     echo "arena: unknown command '$cmd'" >&2
     usage >&2
     exit 2
@@ -179,12 +182,12 @@ switch $cmd
             echo "no house bots running"
         end
 
-    case map maps
-        if test $cmd = map
-            set -q argv[1]; or fail "map: which map? (map NAME)"
-            set line "map $argv[1]"
-        else
+    case map maps kick ban unban
+        if test $cmd = maps
             set line maps
+        else
+            set -q argv[1]; or fail "$cmd: which one? ($cmd NAME)"
+            set line "$cmd $argv[1]"
         end
         if not alive $dir/serve.pid; or not test -p $pipe
             fail "the arena on port $port is not running (start it with up)"

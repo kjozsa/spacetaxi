@@ -226,6 +226,25 @@ arena of a wave plays the same map, but the map can change between waves (the op
 it on a running server), so read the map from every `round_start`. When the server sends an
 `error`, it closes the socket right after it.
 
+Limits, so one buggy or hostile client cannot spoil the race for the others:
+
+- A message from a bot is at most 64 KB (65 536 bytes; a `move` is well under 1 KB). A bigger
+  frame or message gets `error` `too_big` and the connection is closed; the server decides on
+  the frame header and never reads the rest. A spectator's message is at most 4 KB.
+- A bot sends at most 20 messages and at most 128 KB (131 072 bytes) within one tick
+  (`tick_ms`); more gets `error` `flooding` and the connection is closed. One `move` per tick
+  is all a bot needs.
+- At most 4 bots are connected at once from one IP address (`spacetaxi serve
+  --max-bots-per-ip`) and 40 in all (`--max-bots`); the house bots do not count. Over the cap
+  the `hello` gets `error` `too_many` or `full`.
+- The operator can disconnect a bot (`kick`, `error` `kicked`) or ban its name (`ban`, `error`
+  `banned`): a banned name is refused from then on, ignoring case, and is left out of the
+  leaderboard and the plan of the next wave until the operator lifts the ban. Its milestone
+  places are dropped for good: the names behind it on each milestone move up a place, keeping
+  their order and ties, and get that place's points; the next name to reach it takes the
+  place after them.
+- A spectator that sends a message is disconnected.
+
 Spectators (the live viewer at `http://HOST:PORT/watch`) connect to `ws://HOST:PORT/spectate`
 and send nothing. The server first sends `{"type": "spectate", "arenas": 3}` (how many arenas
 can run side by side), then every arena's `round_start`, `tick` (with the spectator-only
@@ -458,7 +477,8 @@ for any other tick is late and the taxi coasts. `debug` is optional, for viewers
 simulation ignores it. It is either free text, or an object with an optional `say` (free text)
 and an optional `path` (a list of `[x, y]` integer cells, e.g. the planned route). Other keys
 of the object, a `say` that is not text and a `path` that is not such a list are dropped; any
-other `debug` is dropped whole.
+other `debug` is dropped whole. The free text and `say` are cut to their first 200 characters
+and `path` to its first 200 cells before the server keeps, forwards or records the move.
 
 ```json
 {"type": "move", "tick": 42, "ax": 0, "ay": -1, "debug": "climbing to cruise height"}
@@ -492,8 +512,14 @@ is free text for humans. `code` is one of:
   in another spelling (names ignore case); the message names the spelling to connect as.
 - `bad_name`: the `name` in `hello` breaks the naming rule.
 - `bad_protocol`: the server does not speak the `protocol` in `hello`.
-- `bad_message`: the message is not JSON, not an object, has an unknown `type`, or is not
-  `hello` when `hello` is expected.
+- `bad_message`: the message is not JSON (JSON nested too deep included), not an object, has
+  an unknown `type`, or is not `hello` when `hello` is expected.
+- `too_big`: a message over 64 KB (see Transport, Limits).
+- `flooding`: more than 20 messages, or more than 128 KB, within one tick.
+- `too_many`: the IP address already has the most bots connected that the server allows.
+- `full`: the server already has the most bots connected that it allows.
+- `kicked`: the operator disconnected the bot; it may connect again.
+- `banned`: the operator banned the name; the server refuses it.
 
 ```json
 {"type": "error", "code": "name_taken", "message": "name 'alice' is already connected"}

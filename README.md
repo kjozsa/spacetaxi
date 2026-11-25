@@ -105,6 +105,25 @@ the round ends. `/` is the leaderboard (`/leaderboard.json` its data); with `--l
 results are appended as a JSON line and the leaderboard is rebuilt from it on restart; with
 `--replays` each round is written as a replay for `spacetaxi view`.
 
+Limits keep a buggy or hostile bot from spoiling the race (details in
+[docs/rules.md](docs/rules.md#transport)): a bot's message is at most 64 KB (`too_big`), a
+spectator's 4 KB; more than 20 messages or 128 KB from one bot within one tick close it
+(`flooding`); a move's `debug` text is cut to 200 characters and its `path` to 200 cells. At most
+`--max-bots-per-ip` bots (default 4) connect at once from one IP address (`too_many`) and
+`--max-bots` (default 40) in all (`full`); the `--house` bots do not count. Deeply nested JSON is
+a `bad_message`, and an exception in one connection is logged as one line (`! NAME: ...`).
+
+When a bot misbehaves, or someone connects dozens of names, type in `serve`'s terminal (or write
+into the `--control` pipe, or use `scripts/arena.fish kick NAME`):
+
+- `kick NAME`: disconnect the bot; it may connect again.
+- `ban NAME`: disconnect it, refuse the name from then on (ignoring case) and leave it out of the
+  leaderboard and the next-wave plan. Its milestone places are dropped and everyone behind it
+  moves up (with the points of the new place), so spam names that took the first `hello`
+  places give them back. Bans are saved in the `--standings` file.
+- `unban NAME`: accept the name again (its leaderboard row comes back; its milestones start
+  over).
+
 `/watch` is the neon viewer, live: put it on the projector. It follows the arena whose round
 started last, or the one picked at the bottom right, with the leaderboard beside it; between
 rounds it shows the INSERT COIN splash with the queue length and the plan of the next wave (its
@@ -193,6 +212,7 @@ keeps its state (standings, log, replays, pid files, bot logs, the control pipe)
 | `house [pilot\|greedy] [-n N]` | start house bots in the background: `ace`, `ace2`, `ace3` fly pilot, `gus`, `gus2`, `gus3` greedy |
 | `unhouse [NAME\|all]` | stop house bots started by `house` |
 | `map NAME`, `maps` | switch the next wave's map, list the maps (answered in `up`'s output) |
+| `kick NAME`, `ban NAME`, `unban NAME` | disconnect a bot, ban its name, lift a ban (answered in `up`'s output) |
 | `status` | up or not, current and next map, waiting and playing, house bots, top 5 |
 | `open [--card]` | open `/watch` and `/standings` (and `/card`) in the browser |
 | `down` | stop the house bots and the arena |
