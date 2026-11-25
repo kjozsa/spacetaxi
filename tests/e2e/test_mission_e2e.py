@@ -5,6 +5,7 @@ tests skip."""
 
 import asyncio
 import json
+import re
 
 import pytest
 
@@ -14,6 +15,8 @@ from spacetaxi.server import ArenaServer
 from spacetaxi.sim import Rules
 
 pytest.importorskip("playwright.sync_api")
+
+from test_watch_e2e import RULES, run_arena, scripted_bot, wait_for_plan  # noqa: E402
 
 
 @pytest.fixture
@@ -243,3 +246,75 @@ def test_mission_page_follows_a_name_ignoring_case_and_says_when_no_bot_has_it(b
     assert page.locator("#nobot").inner_text() == "NO BOT NAMED NOBODY HAS CONNECTED YET"
     assert "ws://" in page.locator("#prompt").inner_text()   # the hello prompt still helps
     context.close()
+
+
+# --- the NOW and NEXT lines link to /watch?bot=NAME
+
+def where_link(page):
+    """The `#where` line's link as (text, href), or None."""
+    return page.evaluate("(a => a && [a.textContent, a.getAttribute('href')])"
+                         "(document.querySelector('#where a'))")
+
+
+def follow(page, name, until):
+    page.fill("#askName", name)
+    page.click("#ask button")
+    page.wait_for_function(f"window.spacetaxi.where && {until}", timeout=15000)
+
+
+def test_mission_now_line_links_to_watch_following_the_bot(browser, serve_arena):
+    base, _ = run_arena(serve_arena, bots=8, fill_seconds=0.2)
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.goto(base + "/mission")
+    follow(page, "Bot3", "window.spacetaxi.where.startsWith('NOW:')")   # the bot is `bot3`
+    assert where_link(page) == ["WATCH", "/watch?bot=Bot3"]
+    assert re.fullmatch(r"NOW: arena \d, round ends in \d+ s WATCH", page.locator("#where").inner_text())
+    assert page.locator("#where a").get_attribute("target") is None
+
+    # later polls rewrite the line and keep the link
+    polls = page.evaluate("window.spacetaxi.polls")
+    page.wait_for_function(f"window.spacetaxi.polls > {polls + 1}", timeout=10000)
+    assert page.locator("#where a").count() == 1
+    assert where_link(page) == ["WATCH", "/watch?bot=Bot3"]
+
+    # a name no bot has: the link goes
+    page.click("#rename")
+    follow(page, "nobody", "window.spacetaxi.where === 'not connected'")
+    assert where_link(page) is None
+
+    # and comes back for the bot; one click opens /watch following it, in this tab
+    page.click("#rename")
+    follow(page, "Bot3", "/^(NOW|NEXT):/.test(window.spacetaxi.where)")
+    pages = len(page.context.pages)
+    page.click("#where a")
+    page.wait_for_url(base + "/watch?bot=Bot3")
+    page.wait_for_function("window.spacetaxi && window.spacetaxi.followed === 'Bot3'", timeout=10000)
+    assert len(page.context.pages) == pages
+    page.close()
+    assert errors == []
+
+
+def test_mission_next_line_links_to_watch_and_the_waitlist_does_not(browser, serve_arena):
+    server = ArenaServer({"cavern": load_map("cavern")}, RULES, 600, seed=1)
+    base, server, _ = serve_arena(server, lambda loop, port: [
+        loop.create_task(scripted_bot(port, f"bot{i}")) for i in range(14)])
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.goto(base + "/watch")  # only to wait for the plan of all 14
+    plan = wait_for_plan(page, base, 14)
+    planned, waiting = plan["arenas"][1][0], plan["waitlist"][0]
+
+    page.goto(base + "/mission")
+    follow(page, planned.upper(), "window.spacetaxi.where.startsWith('NEXT:')")
+    assert where_link(page) == ["WATCH", f"/watch?bot={planned.upper()}"]
+    assert page.locator("#where").inner_text().endswith(" s WATCH")
+
+    page.click("#rename")
+    follow(page, waiting, "window.spacetaxi.where.startsWith('WAITLIST')")
+    assert where_link(page) is None
+    assert page.locator("#where").inner_text().startswith("WAITLIST #1:")
+    page.close()
+    assert errors == []

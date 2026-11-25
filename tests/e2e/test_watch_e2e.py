@@ -378,7 +378,7 @@ def test_mission_shows_next_for_a_planned_name_and_waitlist_for_a_waiting_one(br
     page.click("#ask button")
     page.wait_for_function("window.spacetaxi.where", timeout=10000)
     where = page.locator("#where").inner_text()
-    assert re.fullmatch(rf"NEXT: wave 1, arena 2 with {', '.join(others)} — in ~\d+ s", where)
+    assert re.fullmatch(rf"NEXT: wave 1, arena 2 with {', '.join(others)} — in ~\d+ s WATCH", where)
 
     page.click("#rename")
     page.fill("#askName", waiting)
