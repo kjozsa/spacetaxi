@@ -7,7 +7,8 @@ from pathlib import Path
 
 from spacetaxi.cli import main
 from spacetaxi.sim import Rules
-from spacetaxi.viewer import build_html, make_server, replay_data
+from spacetaxi.maps import load_map
+from spacetaxi.viewer import build_fly_html, build_html, build_live_html, make_server, replay_data
 
 FIXTURES = Path(__file__).parent / "fixtures"
 STACKED = FIXTURES / "show" / "stacked.jsonl"
@@ -104,3 +105,16 @@ def test_replay_data_has_each_players_debug(tmp_path):
     [rnd] = replay_data(str(replay))
     for tick in rnd["ticks"]:
         assert tick["d"] == [{"say": "hi", "path": [[5, 5], [6, 5]]}, "just text", None]
+
+
+def test_each_page_carries_only_the_modes_it_runs():
+    replay = build_html(str(STACKED))
+    live = build_live_html(load_map("cavern"), Rules())
+    fly = build_fly_html(load_map("cavern"), Rules())
+    for html in (replay, live, fly):
+        assert "function draw(" in html and "const NAME_RE" in html
+    assert "connectLive" not in replay and "startFly" not in replay
+    assert "connectLive" in live and "startFly" not in live and "connectFly" not in live
+    assert "connectLive" in fly and "startFly" in fly
+    # The shared name rule comes before any mode uses it.
+    assert fly.index("const NAME_RE") < fly.index("NAME_RE.test")
