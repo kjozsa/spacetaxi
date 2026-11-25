@@ -82,6 +82,16 @@ body.live #bar { justify-content: flex-end; }
 #splash .plan .col { display: flex; flex-direction: column; gap: 10px; min-width: 260px; text-align: left; }
 #splash .plan .col b { font-weight: normal; font-size: 18px; color: #ff3df0; text-shadow: 0 0 8px #ff3df0; }
 #splash .plan .col span { font-size: 20px; color: #2ef2ff; }
+/* /watch?bot=NAME: the followed bot in the plan, its seat on the splash, the banner on the stage */
+#splash .plan .col span.me { color: #ffd23f; text-shadow: 0 0 10px #ffd23f; }
+#splash .plan .col span.me::before { content: "\25b6  "; }
+#splash .seat { font-size: 28px; color: #ffd23f; text-shadow: 0 0 10px #ffd23f; }
+#splash .seat:empty { display: none; }
+#followNote {
+  position: absolute; left: 0; width: 1500px; bottom: 110px; z-index: 6; pointer-events: none;
+  text-align: center; font-size: 28px; color: #ff3df0; text-shadow: 0 0 10px #ff3df0;
+}
+#followNote[hidden] { display: none; }
 #splash .plan .wait { font-size: 16px; color: var(--muted); max-width: 1500px; line-height: 1.6; }
 #lb {
   position: absolute; right: 0; top: 120px; bottom: 72px; width: 420px; box-sizing: border-box;
@@ -207,11 +217,13 @@ body.fly #bar { justify-content: flex-end; }
     <span class="coin">INSERT COIN &mdash; CLICK TO START</span>
     <span class="queue" id="queue"></span>
     <span class="nextmap" id="nextMap"></span>
+    <span class="seat" id="seat"></span>
     <span class="pit" id="pit"></span>
     <span class="plan" id="plan"></span>
     <span class="hint">SPACE PLAY/PAUSE &middot; 1-4 SPEED &middot; C SCREEN &middot; M OR SOUND BUTTON MUTE &middot; D DEBUG</span>
   </button>
   <div id="toasts" aria-live="polite"></div>
+  <div id="followNote" role="status" aria-live="polite" hidden></div>
   <aside id="lb" hidden aria-label="Leaderboard">
     <h2>LEADERBOARD</h2>
     <div class="sub" id="lbSub">AVG $ PER ROUND</div>
