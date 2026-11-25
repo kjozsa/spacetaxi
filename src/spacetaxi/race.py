@@ -9,7 +9,6 @@ benchmarks are simulated in a thread at start, for every map, unless `benchmarks
 """
 
 import asyncio
-import json
 from pathlib import Path
 
 from .milestones import BENCHMARK_BOTS, BENCHMARK_ROUNDS, MILESTONES, Standings
@@ -69,9 +68,9 @@ class Race:
         awards = self.standings.award(milestone, entries)
         for a in awards:
             self.say(f"* milestone {a['milestone']}: {a['name']} P{a['place']} +{a['points']}")
-            text = json.dumps({"type": "milestone", **a}, separators=(",", ":"))
+            message = {"type": "milestone", **a}
             for spectator in self.spectators:
-                spectator.send(text)
+                spectator.send(message)
         if awards:
             self.standings.save()
 

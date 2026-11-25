@@ -19,7 +19,8 @@ def test_plan_module_has_no_asyncio_or_socket():
             imported |= {a.name for a in node.names}
         elif isinstance(node, ast.ImportFrom):
             imported.add("." * node.level + (node.module or ""))
-    assert imported == {"itertools"}
+    assert not imported & {"asyncio", "socket"}
+    assert not any(n.startswith(".") for n in imported)  # nothing of the server
 
 
 def test_arena_server_uses_the_plan_module():

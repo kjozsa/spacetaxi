@@ -594,4 +594,3 @@ class ArenaServer(Plan, Race, Admission, Pages):
         if sock.too_big:
             await bot.stop()
             await self.too_big(sock)
-
