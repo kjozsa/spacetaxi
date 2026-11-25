@@ -867,9 +867,11 @@ class ArenaServer:
             await spectator.stop()
 
     async def error(self, sock: ws.WebSocket, code: str, message: str) -> None:
+        """Send an `error`; a peer that does not read gets `ws.CLOSE_TIMEOUT` seconds."""
         try:
-            await sock.send(dumps({"type": "error", "code": code, "message": message}))
-        except (ConnectionError, OSError):
+            async with asyncio.timeout(ws.CLOSE_TIMEOUT):
+                await sock.send(dumps({"type": "error", "code": code, "message": message}))
+        except (ConnectionError, OSError, TimeoutError):
             pass
 
     def spelling(self, name: str) -> str | None:

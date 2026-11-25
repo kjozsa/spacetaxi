@@ -26,6 +26,10 @@ CONT, TEXT, BINARY, CLOSE, PING, PONG = 0x0, 0x1, 0x2, 0x8, 0x9, 0xA
 MAX_MESSAGE = 16 * 1024 * 1024  # the default limit: refuse anything bigger, so a bad peer
 # cannot eat the memory; `serve` takes a smaller one per path
 
+MAX_FRAGMENTS = 1024  # frames one message may be split into; more count as too big
+YIELD_EVERY = 64  # frames read before `recv` lets the other tasks run, even with data buffered
+CLOSE_TIMEOUT = 1.0  # seconds a close may wait for a peer that does not read
+
 REASONS = {101: "Switching Protocols", 200: "OK", 400: "Bad Request", 404: "Not Found",
            426: "Upgrade Required"}
 
@@ -146,11 +150,16 @@ class WebSocket:
         """The next message (text as `str`, binary as `bytes`), answering pings on the way;
         None once the socket is closed."""
         parts: list[bytes] = []
+        size = 0  # bytes in parts
         kind = None
+        frames = 0
         while not self.closed:
+            frames += 1
+            if frames % YIELD_EVERY == 0:
+                await asyncio.sleep(0)
             try:
                 fin, opcode, payload, masked = await read_frame(
-                    self.reader, max(125, self.max_message - sum(len(p) for p in parts)))
+                    self.reader, max(125, self.max_message - size))
                 if masked == self.client:
                     raise WebSocketError("frame masked the wrong way")
             except TooBig:
@@ -172,10 +181,11 @@ class WebSocket:
                 await self._finish_close(code)
                 return None
             elif opcode in (TEXT, BINARY) and kind is None:
-                kind, parts = opcode, [payload]
+                kind, parts, size = opcode, [payload], len(payload)
             elif opcode == CONT and kind is not None:
                 parts.append(payload)
-                if sum(len(p) for p in parts) > self.max_message:
+                size += len(payload)
+                if size > self.max_message or len(parts) > MAX_FRAGMENTS:
                     self.too_big = True
                     return None
             else:
@@ -208,18 +218,17 @@ class WebSocket:
         await self._abort(code)
 
     async def _abort(self, code: int | None) -> None:
+        """Send a close frame (when `code`), then drop the connection. A peer that does not
+        read gets `CLOSE_TIMEOUT` seconds to take what is still unsent, then it is cut."""
         if code is not None and not self._close_sent:
             self._close_sent = True
             try:
-                await self._send_frame(CLOSE, struct.pack("!H", code))
-            except (ConnectionError, OSError):
+                async with asyncio.timeout(CLOSE_TIMEOUT):
+                    await self._send_frame(CLOSE, struct.pack("!H", code))
+            except (ConnectionError, OSError, TimeoutError):
                 pass
         self.closed = True
-        self.writer.close()
-        try:
-            await self.writer.wait_closed()
-        except (ConnectionError, OSError):
-            pass
+        await close_writer(self.writer)
 
     async def close(self, code: int = 1000, timeout: float = 2.0) -> None:
         """Send a close frame, wait (up to `timeout` s) for the peer's close, then disconnect."""
@@ -228,15 +237,11 @@ class WebSocket:
         if self.too_big:  # the rest of the peer's message is still coming: do not read it
             await self._abort(1009)
             return
-        if not self._close_sent:
-            self._close_sent = True
-            try:
-                await self._send_frame(CLOSE, struct.pack("!H", code))
-            except (ConnectionError, OSError):
-                await self._abort(None)
-                return
         try:
             async with asyncio.timeout(timeout):
+                if not self._close_sent:
+                    self._close_sent = True
+                    await self._send_frame(CLOSE, struct.pack("!H", code))
                 while not self.closed:
                     fin, opcode, payload, masked = await read_frame(self.reader,
                                                                     self.max_message)
@@ -322,13 +327,22 @@ async def serve(ws_routes: dict, http_handler=None, host: str | None = None,
             print(f"! {peer_of(writer)}: {type(exc).__name__} {str(exc)[:200]}",
                   file=sys.stderr, flush=True)
         finally:
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except (ConnectionError, OSError):
-                pass
+            await close_writer(writer)
 
     return await asyncio.start_server(on_connection, host, port, reuse_address=True)
+
+
+async def close_writer(writer: asyncio.StreamWriter) -> None:
+    """Close `writer`, flushing what is unsent for up to `CLOSE_TIMEOUT` seconds; a peer that
+    does not read is cut off after that."""
+    writer.close()
+    try:
+        async with asyncio.timeout(CLOSE_TIMEOUT):
+            await writer.wait_closed()
+    except TimeoutError:
+        writer.transport.abort()
+    except (ConnectionError, OSError):
+        pass
 
 
 def peer_of(writer: asyncio.StreamWriter) -> str:
