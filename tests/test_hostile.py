@@ -444,3 +444,45 @@ def test_a_never_reading_bot_and_50_never_reading_spectators_do_not_move_the_tic
     for s in [lazy, *spectators]:
         s.close()
     srv.stop()
+
+
+def test_a_message_of_endless_empty_fragments_does_not_stall_the_ticks(serve):
+    srv = serve()
+    bot = Raw(srv.port)
+    bot.hello("shards")
+    probe = Probe(srv.port)
+    probe.start()
+    wait_round(probe)
+    start = ws.encode_frame(ws.TEXT, b"", mask=True, fin=False)
+    piece = ws.encode_frame(ws.CONT, b"", mask=True, fin=False)
+    try:
+        bot.s.sendall(start + piece * 20_000)  # 120 KB on the wire, no payload at all
+    except OSError:  # the server may close on it
+        pass
+    assert_rhythm(probe)
+    srv.stop()
+
+
+def test_kick_disconnects_a_bot_that_does_not_read(serve, tmp_path):
+    pipe = tmp_path / "control"
+    srv = serve("--control", str(pipe))
+    deaf = Raw(srv.port)
+    deaf.hello("deaf")
+    assert deaf.until("welcome")["type"] == "welcome"
+    deaf.s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+    deaf.s.settimeout(1)
+    pings = ws.encode_frame(ws.PING, b"p" * 125, mask=True) * 100
+    try:  # pings whose pongs are never read, until the server's send buffer is full
+        for _ in range(1000):
+            deaf.s.sendall(pings)
+    except OSError:
+        pass
+    with open(pipe, "w") as p:
+        p.write("kick deaf\n")
+    for _ in range(100):
+        if "- deaf left" in srv.output():
+            break
+        time.sleep(0.05)
+    assert "- deaf left" in srv.output(), "kicked, but still connected 5 s later"
+    deaf.close()
+    srv.stop()
