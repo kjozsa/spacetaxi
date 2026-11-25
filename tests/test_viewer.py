@@ -113,7 +113,7 @@ def test_each_page_carries_only_the_modes_it_runs():
     fly = build_fly_html(load_map("cavern"), Rules())
     for html in (replay, live, fly):
         assert "function draw(" in html and "const NAME_RE" in html
-    assert "connectLive" not in replay and "startFly" not in replay
+    assert "connectLive" not in replay and "startFly" not in replay and "followBot" not in replay
     assert "connectLive" in live and "startFly" not in live and "connectFly" not in live
     assert "connectLive" in fly and "startFly" in fly
     # The shared name rule comes before any mode uses it.
