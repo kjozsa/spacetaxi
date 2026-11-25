@@ -81,10 +81,10 @@ def test_watch_follows_switches_and_reports_the_live_tick(browser, two_arenas):
                            timeout=15000)
     assert not page.locator("#splash").is_visible()
 
-    # Follows the arena whose round started last, and its ticks advance live.
+    # Rotates, starting on arena 1, and its ticks advance live.
     page.wait_for_function("window.spacetaxi.tick > 3", timeout=10000)
     s = state(page)
-    assert s["follow"] and s["round"] == max(a["round"] for a in live_arenas(base).values())
+    assert s["rotate"] and s["arena"] == 1 and s["round"] == live_arenas(base)[1]["round"]
     t0 = s["tick"]
     page.wait_for_function(f"window.spacetaxi.tick >= {t0 + 5}", timeout=5000)
 
@@ -98,7 +98,7 @@ def test_watch_follows_switches_and_reports_the_live_tick(browser, two_arenas):
     page.evaluate("window.__same_page = true")
     other = next(k for k in s["running"] if k != s["arena"])
     page.select_option("#round", str(other))
-    page.wait_for_function(f"window.spacetaxi.arena === {other} && !window.spacetaxi.follow")
+    page.wait_for_function(f"window.spacetaxi.arena === {other} && !window.spacetaxi.rotate")
     s2 = state(page)
     assert page.evaluate("window.__same_page") is True
     assert s2["round"] != s["round"] and s2["tick"] > 0
@@ -120,12 +120,207 @@ def test_watch_follows_switches_and_reports_the_live_tick(browser, two_arenas):
     assert errors == []
 
 
+def wave_start(page, base, arenas, after=0):
+    """Waits for a wave of `arenas` rounds numbered above `after` to start and run a tick, then
+    returns (the arena on screen, the highest round of the wave in /leaderboard.json)."""
+    page.wait_for_function(f"window.spacetaxi.running.length === {arenas}"
+                           f" && window.spacetaxi.round > {after} && window.spacetaxi.tick > 1",
+                           timeout=20000)
+    rounds = [a["round"] for a in live_arenas(base).values()]
+    assert len(rounds) == arenas and min(rounds) > after
+    return state(page)["arena"], max(rounds)
+
+
+def rotation(page, base, arenas, waves, after=0):
+    """The arena on screen in each of the next `waves` waves; the last wave's highest round."""
+    shown = []
+    for _ in range(waves):
+        arena, after = wave_start(page, base, arenas, after)
+        shown.append(arena)
+    return shown, after
+
+
+def test_watch_rotates_between_two_arenas_and_the_picker_holds_one(browser, two_arenas):
+    base, server = two_arenas
+    page, errors = open_watch(browser, base)
+    page.click("#splash")
+    assert selected(page) == "ROTATE" and "FOLLOW LATEST" not in picker(page)
+    shown, last = rotation(page, base, 2, 3)
+    assert shown == [1, 2, 1]
+
+    # ARENA 2 holds through the next wave; ROTATE resumes the rotation at the one after
+    page.select_option("#round", "2")
+    page.wait_for_function("window.spacetaxi.arena === 2 && !window.spacetaxi.rotate")
+    arena, last = wave_start(page, base, 2, last)
+    assert arena == 2 and selected(page).startswith("ARENA 2")
+    page.select_option("#round", "rotate")
+    page.wait_for_function("window.spacetaxi.rotate")
+    assert state(page)["arena"] == 2 and selected(page) == "ROTATE"
+    arena, last = wave_start(page, base, 2, last)
+    assert arena == 1
+    page.close()
+    assert errors == []
+
+
+def test_watch_rotates_through_three_arenas(browser, serve_arena):
+    base, server = run_arena(serve_arena, bots=12, fill_seconds=0.2)
+    page, errors = open_watch(browser, base)
+    page.click("#splash")
+    assert rotation(page, base, 3, 4)[0] == [1, 2, 3, 1]
+    page.close()
+    assert errors == []
+
+
+def test_watch_rotation_stays_on_a_single_arena(browser, serve_arena):
+    base, server = run_arena(serve_arena, bots=4, fill_seconds=0.2)
+    page, errors = open_watch(browser, base)
+    page.click("#splash")
+    assert rotation(page, base, 1, 3)[0] == [1, 1, 1]
+    page.close()
+    assert errors == []
+
+
+def test_watch_rotation_resumes_after_the_held_arena(browser, serve_arena):
+    base, server = run_arena(serve_arena, bots=12, fill_seconds=0.2)
+    page, errors = open_watch(browser, base)
+    page.click("#splash")
+    arena, last = wave_start(page, base, 3)
+    assert arena == 1
+    page.select_option("#round", "2")
+    arena, last = wave_start(page, base, 3, last)
+    assert arena == 2
+    # the rotation goes on from the arena on screen: 3, then back to 1
+    page.select_option("#round", "rotate")
+    assert rotation(page, base, 3, 2, last)[0] == [3, 1]
+    page.close()
+    assert errors == []
+
+
+def test_watch_rotation_wraps_when_the_shown_arena_closes(browser, serve_arena):
+    server = ArenaServer({"cavern": load_map("cavern")}, RULES, 0.2, seed=1, max_arenas=3)
+    base, _, loop = serve_arena(server, lambda loop, port: [
+        loop.create_task(scripted_bot(port, f"bot{i}")) for i in range(8)])
+
+    async def join(names):
+        socks = [await ws.connect(base.replace("http", "ws") + "/bot") for _ in names]
+        return socks, [asyncio.create_task(scripted_bot(0, n, s)) for n, s in zip(names, socks)]
+
+    def on_server(coro):
+        return asyncio.run_coroutine_threadsafe(coro, loop).result(10)
+
+    extra, tasks = on_server(join([f"extra{i}" for i in range(4)]))
+    page, errors = open_watch(browser, base)
+    page.click("#splash")
+    shown, last = rotation(page, base, 3, 3)
+    assert shown == [1, 2, 3]
+    # four bots leave while arena 3 is on screen: the next waves have two arenas
+    async def leave():
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        for sock in extra:
+            await sock.close()
+
+    on_server(leave())
+    assert rotation(page, base, 2, 3, last)[0] == [1, 2, 1]
+    page.close()
+    assert errors == []
+
+
+SOCKETS = """(() => {
+  const Real = WebSocket;
+  window.__sockets = [];
+  window.WebSocket = function (url) { const s = new Real(url); window.__sockets.push(s); return s; };
+  window.WebSocket.prototype = Real.prototype;
+})();"""
+
+
+def test_watch_rotation_keeps_its_arena_over_a_reconnect_mid_wave(browser, two_arenas):
+    base, server = two_arenas
+    page, errors = open_watch(browser, base, init=SOCKETS)
+    page.click("#splash")
+    shown, last = rotation(page, base, 2, 2)
+    assert shown == [1, 2]
+    # the spectator socket drops: the replayed rounds of the same wave do not move the view on
+    page.evaluate("window.__sockets.at(-1).close()")
+    page.wait_for_function("window.__sockets.length === 2 && window.spacetaxi.connected"
+                           " && window.spacetaxi.running.length === 2", timeout=10000)
+    s = state(page)
+    assert s["arena"] == 2 and s["round"] == live_arenas(base)[2]["round"]
+    assert wave_start(page, base, 2, last)[0] == 1
+    page.close()
+    assert errors == []
+
+
+def test_watch_rotate_picked_mid_wave_keeps_its_arena_over_a_reconnect(browser, two_arenas):
+    base, server = two_arenas
+    page, errors = open_watch(browser, base, init=SOCKETS)
+    page.click("#splash")
+    arena, last = wave_start(page, base, 2)
+    assert arena == 1
+    page.select_option("#round", "2")
+    page.select_option("#round", "rotate")
+    page.wait_for_function("window.spacetaxi.rotate && window.spacetaxi.arena === 2")
+    page.evaluate("window.__sockets.at(-1).close()")
+    page.wait_for_function("window.__sockets.length === 2 && window.spacetaxi.connected"
+                           " && window.spacetaxi.running.length === 2", timeout=10000)
+    s = state(page)
+    assert s["arena"] == 2 and s["round"] == live_arenas(base)[2]["round"]
+    assert wave_start(page, base, 2, last)[0] == 1
+    page.close()
+    assert errors == []
+
+
+class Restartable:
+    """An 8-bot arena server that `restart()` replaces by a fresh one on the same port, as an
+    operator restarting `serve` without a log does: round numbers start over."""
+
+    async def start(self, host, port):
+        self.host = host
+        self.server = ArenaServer({"cavern": load_map("cavern")}, RULES, 0.2, seed=1, max_arenas=3)
+        self.srv = await self.server.start(host, port)
+        return self.srv
+
+    def bots(self, loop, port):
+        self.loop, self.port = loop, port
+        return [loop.create_task(scripted_bot(port, f"bot{i}")) for i in range(8)]
+
+    async def restart(self):
+        self.srv.close()
+        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        for t in tasks:
+            t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await self.start(self.host, self.port)
+        # kept: the loop holds only weak references to tasks
+        self.tasks = self.bots(self.loop, self.port)
+
+
+def test_watch_rotation_goes_on_after_a_server_restart(browser, serve_arena):
+    arena = Restartable()
+    base, _, loop = serve_arena(arena, arena.bots)
+    page, errors = open_watch(browser, base)
+    page.click("#splash")
+    try:
+        assert rotation(page, base, 2, 4)[0] == [1, 2, 1, 2]
+        asyncio.run_coroutine_threadsafe(arena.restart(), loop).result(10)
+        page.wait_for_function("window.spacetaxi.connected && window.spacetaxi.running.length === 2"
+                               " && window.spacetaxi.round <= 2", timeout=15000)
+        shown = rotation(page, base, 2, 3)[0]
+        assert shown[0] != shown[1] != shown[2], shown
+        page.close()
+        # the browser may log a failed reconnect while the server is down
+        assert [e for e in errors if "WebSocket" not in e and "Failed to load" not in e] == []
+    finally:
+        loop.call_soon_threadsafe(arena.srv.close)   # the fixture only closes the first one
+
+
 def picker(page):
     return page.locator("#round option").all_inner_texts()
 
 
 def expected_picker(arenas, slots=3):
-    return ["FOLLOW LATEST"] + [
+    return ["ROTATE"] + [
         f"ARENA {k} \u00b7 " + (" ".join(n.upper() for n in arenas[k]["players"])
                                if k in arenas else "EMPTY")
         for k in range(1, slots + 1)]
@@ -413,11 +608,12 @@ def test_watch_bot_follows_its_arena_across_waves_silently(browser, two_arenas, 
                            timeout=15000)
     s = state(page)
     assert s["started"] and not page.locator("#splash").is_visible()
-    assert s["followed"] == "bot3" and not s["follow"] and s["followNote"] is None
+    assert s["followed"] == "bot3" and not s["rotate"] and s["followNote"] is None
     assert s["arena"] == arena_of(base, "bot3")
     assert "bot3" in s["marked"]
     assert s["muted"] and not s["audio"] and page.locator("#sound").inner_text() == "SOUND OFF"
-    assert selected(page) == "FOLLOW BOT3" and "FOLLOW LATEST" in picker(page)
+    assert selected(page) == "FOLLOW BOT3"
+    assert "ROTATE" in picker(page) and "FOLLOW LATEST" not in picker(page)
     page.wait_for_timeout(300)
     page.screenshot(path=str(shots / "follow-bot.png"))
 
@@ -576,17 +772,17 @@ def test_plain_watch_offers_the_stored_name_without_following(browser, two_arena
                                init="localStorage.setItem('spacetaxi.name', 'bot5')")
     page.wait_for_function("document.querySelectorAll('#round option').length === 5")
     s = state(page)
-    assert not s["started"] and s["follow"] and s["followed"] is None and not s["muted"]
+    assert not s["started"] and s["rotate"] and s["followed"] is None and not s["muted"]
     assert page.locator("#splash").is_visible()
     assert "INSERT COIN" in page.locator("#splash").inner_text()
-    assert picker(page)[:2] == ["FOLLOW LATEST", "FOLLOW BOT5"] and selected(page) == "FOLLOW LATEST"
+    assert picker(page)[:2] == ["ROTATE", "FOLLOW BOT5"] and selected(page) == "ROTATE"
     page.click("#splash")
     page.wait_for_function("window.spacetaxi.running.length === 2 && window.spacetaxi.tick > 2",
                            timeout=15000)
     page.select_option("#round", "bot")
     page.wait_for_function("window.spacetaxi.followed === 'bot5'")
     s = state(page)
-    assert s["arena"] == arena_of(base, "bot5") and not s["follow"]
+    assert s["arena"] == arena_of(base, "bot5") and not s["rotate"]
     page.wait_for_function("window.spacetaxi.marked.includes('bot5')", timeout=5000)
     assert not state(page)["muted"] and state(page)["audio"]   # the sound stays as it was
     page.close()
@@ -602,11 +798,11 @@ def test_watch_bot_m_key_creates_the_audio_and_the_picker_returns_to_following(b
     s = state(page)
     assert s["audio"] and not s["muted"] and page.locator("#sound").inner_text() == "SOUND ON"
 
-    page.select_option("#round", "follow")
-    page.wait_for_function("window.spacetaxi.follow && window.spacetaxi.followed === null")
-    assert selected(page) == "FOLLOW LATEST" and page.locator("#seat").text_content() == ""
+    page.select_option("#round", "rotate")
+    page.wait_for_function("window.spacetaxi.rotate && window.spacetaxi.followed === null")
+    assert selected(page) == "ROTATE" and page.locator("#seat").text_content() == ""
     page.select_option("#round", "bot")
-    page.wait_for_function("window.spacetaxi.followed === 'bot3' && !window.spacetaxi.follow")
+    page.wait_for_function("window.spacetaxi.followed === 'bot3' && !window.spacetaxi.rotate")
     page.wait_for_function("window.spacetaxi.marked.includes('bot3')", timeout=10000)
     assert state(page)["arena"] == arena_of(base, "bot3") and not state(page)["muted"]
     page.close()
@@ -683,6 +879,6 @@ def test_watch_bot_ignores_a_value_no_bot_could_be_named(browser, lonely):
     page.wait_for_function("window.spacetaxi.connected", timeout=10000)
     s = state(page)
     assert s["followed"] is None and s["followNote"] is None and not s["started"]
-    assert picker(page)[0] == "FOLLOW LATEST" and not any(o.startswith("FOLLOW X") for o in picker(page))
+    assert picker(page)[0] == "ROTATE" and not any(o.startswith("FOLLOW X") for o in picker(page))
     page.close()
     assert errors == []
