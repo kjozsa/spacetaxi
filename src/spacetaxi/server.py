@@ -4,16 +4,9 @@ A bot says `hello` on `/bot`, gets `welcome` and waits (`queued` tells it its pl
 of the next wave and `starts_in`, the seconds until its wave starts). Rounds run in waves: a
 wave starts `fill_seconds` after the first bot joins an idle server, and again `fill_seconds`
 after every arena of the previous wave has ended (the pause for the podium and the leaderboard).
-The next wave is planned early: when a wave starts, every connected bot is dealt into up to
-`max_arenas` arenas of at most 4, as even as possible (7 bots play 4 and 3, 6 play 3 and 3),
-the ones sitting the current wave out first; bots beyond that wait on the plan's waitlist. The
-deal is a seeded shuffle that prefers bots who have met least so far and avoids repeating a
-group of the previous wave, so groups mix and the leaderboard compares like with like. On an
-idle server the plan starts with the first join. Joins and leaves change the plan as little as
-they can (`rebalance`), and the next wave plays exactly as planned; after `round_end` every bot
-of the round that is still connected waits again. Names ignore case: the first spelling seen
-(connected, or in the standings or the leaderboard) keeps the name, and a `hello` with another
-spelling of it gets `name_taken` naming that spelling; the server never renames a bot.
+The next wave is planned early (`spacetaxi.plan`) and plays exactly as planned; after
+`round_end` every bot of the round that is still connected waits again. The hello's checks (names
+ignore case) and the hostile-client limits are in `spacetaxi.limits`.
 
 All arenas of a wave start together and tick every `tick_ms` on the same clock. A `move` counts when it names the tick being
 played and arrives within `deadline_ms` of that tick being sent; anything else is dropped and the
@@ -27,29 +20,15 @@ there to make rounds and to be beaten: they play like any bot, but never reach a
 humans), are marked `house: true` on the leaderboard and to spectators (`house` in
 `round_start`), and are left out of the standings.
 
-`/` is the leaderboard page and `/leaderboard.json` its data. `/fly` is the page to fly in the
-arena by hand: a `/bot` client in the browser with the neon viewer. `/watch` is the neon viewer fed
-live from `/spectate`: a spectator socket that gets `spectate` (the number of arena slots), then
+The pages and their JSON are in `spacetaxi.pages`. `/spectate` is a spectator socket (the
+`/watch` page) that gets `spectate` (the number of arena slots), then
 every arena's `round_start`, `tick` (in the replay's shape, with `moves`) and `round_end`, each
 with `arena` (its slot, 1 to `max_arenas`) and `round` added. A spectator that connects mid-round
 gets each running arena's `round_start` and latest `tick` first. Spectators send nothing. With `log`, each `round_end` is
 appended to that file as one JSON line (with each taxi's `ticks` and `late` count) and the
-leaderboard is rebuilt from it on start. With `replays`, each round is written to that directory
-as a replay that `spacetaxi view` opens.
-
-The milestone race (docs/rules.md, Milestones): every `hello`, tick and `round_end` is checked
-for milestones (`milestones.Tracker`), and points go to whoever reaches each first
-(`milestones.Standings`, saved to `standings` after every change). Ticks of a wave's arenas are
-played on one clock, so a milestone reached on the same tick in two arenas is a tie: candidates
-wait in `pending` until every arena of their wave has played that tick. Every award is logged
-and sent to spectators as `milestone`. `/standings` is the projector page of the race and
-`/standings.json` its data. `/card` is the participant card and `/brief` the agent brief
-(`docs/participant-card.md`, `docs/brief.md`, rendered, with `address` filled in for HOST:PORT;
-`/brief.md` is the raw Markdown). `/mission` is each participant's own page: their next
-milestone only, from `docs/missions.md`, polling `/standings.json`. `/slides` is the intro deck
-(`docs/slides/intro.html`, self-contained, HOST:8000 filled in). Every HTML page has the
-page bar linking the others (`spacetaxi.nav`). The house bots' benchmarks
-are simulated in a thread at start, for every map, unless `benchmarks` gives them.
+leaderboard (`spacetaxi.leaderboard`) is rebuilt from it on start. With `replays`, each round is
+written to that directory as a replay that `spacetaxi view` opens. The milestone race
+(docs/rules.md, Milestones) and the house bots' benchmarks are in `spacetaxi.race`.
 
 The server can have several maps (`maps`, the first is the start map). `command` takes one line
 the operator typed (`map NAME`, `maps`): `map NAME` sets the map of the next wave; the wave in
@@ -57,93 +36,29 @@ progress finishes on its map. All arenas of a wave play one map, named in `round
 `map_name`, and their `beat_greedy` / `beat_pilot` compare against that map's benchmarks.
 `kick NAME` disconnects a bot; `ban NAME` disconnects it, refuses the name from then on and
 leaves it out of the standings, the leaderboard and the plan (bans are kept in the standings
-file); `unban NAME` lifts it.
-
-Hostile clients (docs/rules.md, Limits): a bot's message over `BOT_MAX_MESSAGE` bytes gets
-`too_big`, more than `FLOOD_MESSAGES` or `FLOOD_BYTES` in one tick `flooding`, and the
-connection is closed;
-`max_bots_per_ip` and `max_bots` (None: no cap) cap the bots connected at once (`too_many`,
-`full`), house bots aside. An exception in one connection's handler is logged as one line.
+file); `unban NAME` lifts it. An exception in one connection's handler is logged as one line.
 """
 
 import asyncio
-import base64
-import itertools
 import json
 import random
-import re
 import time
 from pathlib import Path
 
 from . import ws
+from .leaderboard import Leaderboard
+from .limits import (BOT_MAX_MESSAGE, FLOOD_BYTES, FLOOD_MESSAGES, HELLO_TIMEOUT,
+                     MAX_BOTS, MAX_BOTS_PER_IP, NAME, PROTOCOL, SPECTATE_MAX_MESSAGE,  # noqa: F401
+                     Admission, Flood, parse)
 from .maps import Map
-from .milestones import (BENCHMARK_BOTS, BENCHMARK_ROUNDS, MILESTONES, POINTS, Standings,
-                         Tracker)
-from .milestones import benchmarks as simulate_benchmarks
-from .nav import with_nav
+from .milestones import Tracker
+from .pages import Pages
+from .plan import ARENA_SIZE, MAX_ARENAS, Plan, group_sizes  # noqa: F401
+from .race import Race
 from .runner import check_move, clean_debug
 from .sim import Rules, World
-from .viewer import (build_doc_html, build_fly_html, build_live_html, build_mission_html,
-                     build_standings_html)
 
-WEB_DIR = Path(__file__).parent / "web"
-
-NAME = re.compile(r"[A-Za-z0-9_-]{1,12}")
-PROTOCOL = 1
-ARENA_SIZE = 4
-MAX_ARENAS = 3
-HELLO_TIMEOUT = 10  # seconds a new connection has to say hello
-BOT_MAX_MESSAGE = 64 * 1024  # bytes: a bigger message from a bot gets `too_big` and is closed
-SPECTATE_MAX_MESSAGE = 4 * 1024  # spectators send nothing
-FLOOD_MESSAGES = 20  # more messages than this from one bot within one tick: `flooding`
-FLOOD_BYTES = 128 * 1024  # more bytes than this from one bot within one tick: `flooding` too
-MAX_BOTS_PER_IP = 4  # `serve`'s default for bots connected at once from one IP, house bots aside
-MAX_BOTS = 40  # `serve`'s default for bots connected at once, house bots aside
 OUTBOX_TICKS = 8  # a tick is dropped for a bot that has this many messages still unsent
-DEAL_TRIES = 200  # shuffles tried per deal; the one whose groups have met least wins
-
-
-# the Markdown documents the server serves: path -> (file in docs/, page title)
-DOC_PAGES = {"/card": ("participant-card.md", "Spacetaxi: participant card"),
-             "/brief": ("brief.md", "Spacetaxi: brief"),
-             "/brief.md": ("brief.md", "")}
-
-
-def doc_path(name: str) -> Path:
-    """A file of `docs/`: packaged next to the code in a wheel, the repo's `docs/` otherwise."""
-    for docs in (Path(__file__).parent / "docs", Path(__file__).resolve().parents[2] / "docs"):
-        if (docs / name).is_file():
-            return docs / name
-    raise FileNotFoundError(name)
-
-
-def doc_text(name: str) -> str:
-    return doc_path(name).read_text(encoding="utf-8")
-
-
-def build_slides_html(address: str) -> str:
-    """docs/slides/intro.html as one self-contained page: the font and the images inlined,
-    HOST:8000 replaced by `address`."""
-    def data_uri(path: Path, kind: str) -> str:
-        return f"data:{kind};base64," + base64.b64encode(path.read_bytes()).decode("ascii")
-
-    html = doc_text("slides/intro.html")
-    html = html.replace("../../src/spacetaxi/web/PressStart2P-Regular.ttf",
-                        data_uri(WEB_DIR / "PressStart2P-Regular.ttf", "font/ttf"))
-    kinds = {".png": "image/png", ".jpg": "image/jpeg"}
-    html = re.sub(r'src="(img/[\w.-]+)"', lambda m: 'src="{}"'.format(
-        data_uri(doc_path("slides/" + m[1]), kinds[Path(m[1]).suffix])), html)
-    return html.replace("HOST:8000", address)
-
-
-def group_sizes(waiting: int, max_arenas: int = MAX_ARENAS) -> list[int]:
-    """Arena sizes for a wave with `waiting` bots: at most 4 each, as even as possible, largest
-    first; bots beyond `max_arenas` full arenas wait for the next wave."""
-    n = min(waiting, ARENA_SIZE * max_arenas)
-    if n <= 0:
-        return []
-    k = -(-n // ARENA_SIZE)
-    return [n // k + (1 if i < n % k else 0) for i in range(k)]
 
 
 def dumps(message: dict) -> str:
@@ -187,45 +102,6 @@ class Bot:
             await self.sender
         except (asyncio.CancelledError, ConnectionError, OSError):
             pass
-
-
-class Leaderboard:
-    """Totals per name, from `round_end` log records."""
-
-    def __init__(self, house=(), banned=None):
-        self.rows: dict[str, dict] = {}
-        self.house = {n.lower() for n in house}  # names marked as house bots, ignoring case
-        self.banned = banned if banned is not None else set()  # lowercased, left out of table
-
-    def add(self, record: dict) -> None:
-        for r in record["results"]:
-            row = self.rows.setdefault(r["id"], {"rounds": 0, "money": 0, "deliveries": 0,
-                                                 "crashes": 0, "ticks": 0, "late": 0})
-            row["rounds"] += 1
-            if r.get("human"):
-                row["human"] = True
-            for key in ("money", "deliveries", "crashes", "ticks", "late"):
-                row[key] += r.get(key, 0)
-
-    def table(self) -> list[dict]:
-        """One row per name, best average money first."""
-        out = []
-        for name, row in self.rows.items():
-            if name.lower() in self.banned:
-                continue
-            out.append({
-                "name": name,
-                "rounds": row["rounds"],
-                "total_money": row["money"],
-                "avg_money": round(row["money"] / row["rounds"], 2),
-                "deliveries": row["deliveries"],
-                "crashes": row["crashes"],
-                "late_pct": round(100 * row["late"] / row["ticks"], 1) if row["ticks"] else 0.0,
-                "human": row.get("human", False),
-                "house": name.lower() in self.house,
-            })
-        out.sort(key=lambda r: (-r["avg_money"], -r["total_money"], r["name"]))
-        return out
 
 
 class Arena:
@@ -369,8 +245,10 @@ class Arena:
         }
 
 
-class ArenaServer:
-    """The queue, the waves of arenas, the leaderboard and the WebSocket handler."""
+class ArenaServer(Plan, Race, Admission, Pages):
+    """The queue, the waves of arenas, the leaderboard and the WebSocket handler; the plan of
+    the next wave (`Plan`), the milestone race (`Race`), the hello checks (`Admission`) and the
+    HTTP pages (`Pages`) are mixed in."""
 
     def __init__(self, maps: dict[str, Map], rules: Rules | None = None,
                  fill_seconds: float = 10,
@@ -397,49 +275,22 @@ class ArenaServer:
         self.queue: list[Bot] = []
         self.arenas: set[Arena] = set()
         self.spectators: set[Bot] = set()
-        self.watch_pages: dict[str, bytes] = {}  # per map, built on the first request
-        self.fly_pages: dict[str, bytes] = {}
         self.tasks: set[asyncio.Task] = set()
         # the house bots' names, lowercased (names ignore case): they never score milestones
         self.house = {n.lower() for n in house}
-        self.standings = Standings(standings)
+        self.init_race(standings, benchmarks)  # the standings, the benchmarks, `pending`
         self.leaderboard = Leaderboard(self.house, self.standings.banned)
         self.rounds = 0
         self.wave = 0
         self.wave_t0 = 0  # perf_counter_ns when the running wave's clock started
         self.next_wave_ns: int | None = None  # when the next wave starts; None while a wave runs
-        # the plan of the next wave: its arenas (names) and its waitlist, every connected bot
-        self.plan_arenas: list[list[str]] = []
-        self.plan_waitlist: list[str] = []
-        self.said_plan = ""  # the plan as last printed
-        self.met: dict[frozenset, int] = {}  # rounds each pair of names has shared
-        self.last_groups: set[frozenset] = set()  # the previous wave's groups
-        # per map, the money beat_greedy / beat_pilot must beat; None until simulated
-        self.map_benchmarks: dict[str, dict[str, int | None]] = {
-            name: {bot: None for bot in BENCHMARK_BOTS} for name in self.maps}
-        for name, values in (benchmarks or {}).items():
-            self.map_benchmarks[name].update(values)
-        self.pending: list[tuple] = []  # (wave, tick, milestone, name, key) not yet scored
-        self.leaderboard_page: bytes | None = None
-        self.standings_page: bytes | None = None
-        self.slides_page: bytes | None = None
+        self.init_plan()  # the next wave's arenas (names) and waitlist, every connected bot
+        self.init_pages()
         self.address: str | None = None  # HOST:PORT for the card and brief; set by start()
         if self.log and self.log.exists():
-            with open(self.log, encoding="utf-8") as f:
-                for line in f:
-                    if not line.strip():
-                        continue
-                    record = json.loads(line)
-                    self.leaderboard.add(record)
-                    self.rounds = max(self.rounds, record.get("round", 0))
-                    self.wave = max(self.wave, record.get("wave", 0))
+            self.rounds, self.wave = self.leaderboard.load(self.log)
         if self.replays:
             self.replays.mkdir(parents=True, exist_ok=True)
-
-    @property
-    def benchmarks(self) -> dict[str, int | None]:
-        """The benchmarks of the current (or last) wave's map."""
-        return self.map_benchmarks[self.map_name]
 
     # --- the operator's commands
 
@@ -507,69 +358,6 @@ class ArenaServer:
         self.standings.save()
         return f"unbanned {name}"
 
-
-    # --- HTTP
-
-    def doc(self, name: str) -> str:
-        """A file of `docs/` with the server's address filled in for HOST:PORT."""
-        return doc_text(name).replace("HOST:PORT", self.address or "HOST:PORT")
-
-    def http(self, path: str):
-        """The HTTP answer to GET `path`: (status, content type, body), or None. Every HTML page
-        is built with the page bar (`spacetaxi.nav`)."""
-        if path in ("/", "/index.html"):
-            if self.leaderboard_page is None:
-                page = (WEB_DIR / "leaderboard.html").read_text(encoding="utf-8")
-                self.leaderboard_page = with_nav(page, "/").encode("utf-8")
-            return 200, "text/html; charset=utf-8", self.leaderboard_page
-        if path == "/leaderboard.json":
-            data = {"leaderboard": self.leaderboard.table(), "rounds": self.rounds,
-                    "wave": self.wave, "next_map": self.next_map,
-                    "connected": len(self.bots), "waiting": len(self.queue),
-                    "arenas": sorted([{"round": a.number, "arena": a.slot, "players": a.names,
-                                       "tick": a.playing, "ends_in": self.seconds(self.wave_t0 + self.round_ns())}
-                                      for a in self.arenas],
-                                     key=lambda a: a["round"]),
-                    "next_wave": {"wave": self.wave + 1, "map": self.next_map,
-                                  "starts_in": self.seconds(self.next_wave_at()),
-                                  "arenas": [list(g) for g in self.plan_arenas],
-                                  "waitlist": list(self.plan_waitlist)}}
-            return 200, "application/json", json.dumps(data).encode("utf-8")
-        if path == "/standings":
-            if self.standings_page is None:
-                self.standings_page = with_nav(build_standings_html(), path).encode("utf-8")
-            return 200, "text/html; charset=utf-8", self.standings_page
-        if path == "/standings.json":
-            data = {"standings": self.standings.table(self.house | self.standings.banned),
-                    "milestones": list(MILESTONES), "points": list(POINTS),
-                    "map_name": self.map_name, "benchmarks": self.benchmarks,
-                    "reached": {m: self.standings.reached(m) for m in MILESTONES}}
-            return 200, "application/json", json.dumps(data).encode("utf-8")
-        if path == "/slides":
-            if self.slides_page is None:
-                page = build_slides_html(self.address or "HOST:8000")
-                self.slides_page = with_nav(page, path).encode("utf-8")
-            return 200, "text/html; charset=utf-8", self.slides_page
-        if path == "/mission":
-            text = self.doc("missions.md")
-            page = with_nav(build_mission_html(text), path)
-            return 200, "text/html; charset=utf-8", page.encode("utf-8")
-        if path in DOC_PAGES:
-            name, title = DOC_PAGES[path]
-            text = self.doc(name)
-            if path.endswith(".md"):
-                return 200, "text/markdown; charset=utf-8", text.encode("utf-8")
-            page = with_nav(build_doc_html(text, title), path)
-            return 200, "text/html; charset=utf-8", page.encode("utf-8")
-        if path in ("/watch", "/fly"):  # the empty map shown before a round: the next one
-            pages, build = ((self.watch_pages, build_live_html) if path == "/watch"
-                            else (self.fly_pages, build_fly_html))
-            name = self.next_map
-            if name not in pages:
-                pages[name] = with_nav(build(self.maps[name], self.rules), path).encode("utf-8")
-            return 200, "text/html; charset=utf-8", pages[name]
-        return None
-
     async def start(self, host: str | None = None, port: int = 8000) -> asyncio.Server:
         server = await ws.serve({"/bot": self.handle, "/spectate": self.spectate}, self.http,
                                 host, port, {"/bot": BOT_MAX_MESSAGE,
@@ -577,66 +365,14 @@ class ArenaServer:
         if self.address is None:
             self.address = f"{host or 'localhost'}:{server.sockets[0].getsockname()[1]}"
         self._spawn(self.scheduler())
-        for name, values in self.map_benchmarks.items():
-            if all(v is not None for v in values.values()):
-                self.say_benchmarks(name, "given")
-        if any(v is None for values in self.map_benchmarks.values() for v in values.values()):
-            self._spawn(self.find_benchmarks())
+        self.start_benchmarks()
         return server
-
-    def say_benchmarks(self, name: str, how: str) -> None:
-        self.say(f"benchmarks on {name} ({how}): " + " ".join(
-            f"{bot}={money}" for bot, money in self.map_benchmarks[name].items()))
-
-    async def find_benchmarks(self) -> None:
-        """Simulate the missing benchmarks in a thread, map by map, so the arena runs
-        meanwhile."""
-        for name, values in self.map_benchmarks.items():
-            missing = [bot for bot, money in values.items() if money is None]
-            if not missing:
-                continue
-            self.say(f"benchmarks: simulating {', '.join(missing)} on {name} for the best of "
-                     f"{BENCHMARK_ROUNDS} rounds ...")
-            found = await asyncio.to_thread(simulate_benchmarks, self.maps[name], self.rules,
-                                            missing)
-            values.update(found)
-            self.say_benchmarks(name, f"simulated, best round of {BENCHMARK_ROUNDS}")
 
     def _spawn(self, coro) -> asyncio.Task:
         task = asyncio.create_task(coro)
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
         return task
-
-    # --- the milestone race
-
-    def award(self, milestone: str, entries: list[tuple[str, int]]) -> None:
-        """Score `entries` reaching `milestone` together (see `Standings.award`), log every
-        award, tell the spectators and save the standings."""
-        entries = [e for e in entries if e[0].lower() not in self.standings.banned]
-        awards = self.standings.award(milestone, entries)
-        for a in awards:
-            self.say(f"* milestone {a['milestone']}: {a['name']} P{a['place']} +{a['points']}")
-            text = dumps({"type": "milestone", **a})
-            for spectator in self.spectators:
-                spectator.send(text)
-        if awards:
-            self.standings.save()
-
-    def flush(self, wave: int) -> None:
-        """Score the pending milestones of `wave` from every tick that all of its running
-        arenas have played, tick by tick: the names of one tick and milestone tie."""
-        running = [a.stepped for a in self.arenas if a.wave == wave]
-        upto = min(running) if running else None
-        ready = [p for p in self.pending if p[0] == wave and (upto is None or p[1] <= upto)]
-        if not ready:
-            return
-        self.pending = [p for p in self.pending if p not in ready]
-        moments = sorted({(p[1], MILESTONES.index(p[2])) for p in ready})
-        for tick, m in moments:
-            milestone = MILESTONES[m]
-            self.award(milestone, [(p[3], p[4]) for p in ready
-                                   if p[1] == tick and p[2] == milestone])
 
     # --- the queue, the plan of the next wave and the waves
 
@@ -668,112 +404,21 @@ class ArenaServer:
             return None
         return max(0, -(-(at - time.perf_counter_ns()) // 1_000_000_000))
 
-    # The plan: the next wave's arenas and waitlist, made from every connected bot when a wave
-    # starts (and from the first join on an idle server), then changed only by joins and leaves.
-
-    def plan_order(self) -> list[str]:
-        """The plan's names in order: the next wave's arenas first, then the waitlist."""
-        return [n for g in self.plan_arenas for n in g] + self.plan_waitlist
-
-    def replan(self, names: list[str]) -> None:
-        """A new plan from `names`, the first ones seated first: dealt as a wave (`deal`), the
-        names beyond its seats wait in order."""
-        self.plan_arenas = self.deal(names)
-        seated = {n for g in self.plan_arenas for n in g}
-        self.plan_waitlist = [n for n in names if n not in seated]
-        self.plan_changed()
-
-    def plan_join(self, name: str) -> None:
-        """A joiner takes a free seat, or the end of the waitlist."""
-        self.plan_waitlist.append(name)
-        self.rebalance()
-
-    def plan_leave(self, name: str) -> None:
-        """A leaver's seat goes to the first on the waitlist."""
-        for g in self.plan_arenas:
-            if name in g:
-                g.remove(name)
-        if name in self.plan_waitlist:
-            self.plan_waitlist.remove(name)
-        self.rebalance()
-
-    def rebalance(self) -> None:
-        """Fit the plan to `group_sizes` of its names, moving as few as possible: the arenas
-        get the sizes largest to largest, an arena over its size gives up its last names, and
-        free seats are filled by those first, then from the head of the waitlist."""
-        arenas = [list(g) for g in self.plan_arenas]
-        sizes = group_sizes(len(self.plan_order()), self.max_arenas)
-        target = [0] * len(arenas)
-        for rank, i in enumerate(sorted(range(len(arenas)), key=lambda i: -len(arenas[i]))):
-            target[i] = sizes[rank] if rank < len(sizes) else 0
-        for size in sizes[len(arenas):]:
-            arenas.append([])
-            target.append(size)
-        pool = []
-        for g, size in zip(arenas, target):
-            while len(g) > size:
-                pool.append(g.pop())
-        pool += self.plan_waitlist
-        for g, size in zip(arenas, target):
-            while len(g) < size:
-                g.append(pool.pop(0))
-        self.plan_arenas = [g for g in arenas if g]
-        self.plan_waitlist = pool
-        self.plan_changed()
-
-    def plan_changed(self) -> None:
-        """Print the plan when it differs from the one printed last."""
-        if not self.plan_arenas:
-            return
-        text = (f"next wave {self.wave + 1} on {self.next_map}: "
-                + " | ".join(", ".join(g) for g in self.plan_arenas))
-        if self.plan_waitlist:
-            text += "  waiting: " + ", ".join(self.plan_waitlist)
-        if text != self.said_plan:
-            self.said_plan = text
-            self.say(text)
-
     def tell_positions(self) -> None:
         """Send `queued` to every waiting bot whose place or start time changed: its place in
         the plan, the plan's size and the start of the wave it is planned into."""
-        order = self.plan_order()
         first = self.next_wave_at()
         if first is None:
             return
-        place = {name: i for i, name in enumerate(order, 1)}
-        seats = sum(len(g) for g in self.plan_arenas)
+        places = self.places()
         period = self.round_ns() + self.fill_ns
         for bot in self.queue:
-            i = place[bot.name]
-            later = 0 if i <= seats else 1 + (i - seats - 1) // seats
-            told = (i, len(order), self.seconds(first + later * period))
+            i, later = places[bot.name]
+            told = (i, len(places), self.seconds(first + later * period))
             if bot.told != told:
                 bot.told = told
                 bot.send({"type": "queued", "position": told[0], "waiting": told[1],
                           "starts_in": told[2]})
-
-    def deal(self, names: list[str]) -> list[list[str]]:
-        """Split `names` into a wave's groups (`group_sizes`; names beyond them are left out,
-        they wait): of `DEAL_TRIES` seeded shuffles, the one whose groups repeat fewest of the
-        previous wave's groups, then hold the most pairs who never met, then the fewest past
-        meetings."""
-        sizes = group_sizes(len(names), self.max_arenas)
-        names = names[:sum(sizes)]  # the first ones play
-        best, best_cost = None, None
-        for _ in range(DEAL_TRIES):
-            order = sorted(names)  # the shuffle depends on the seed, not on the queue order
-            self.rng.shuffle(order)
-            groups, at = [], 0
-            for size in sizes:
-                groups.append(order[at:at + size])
-                at += size
-            repeats = sum(frozenset(g) in self.last_groups for g in groups)
-            met = [self.met.get(frozenset(pair), 0)
-                   for g in groups for pair in itertools.combinations(g, 2)]
-            cost = (repeats, -met.count(0), sum(met))
-            if best_cost is None or cost < best_cost:
-                best, best_cost = groups, cost
-        return best
 
     def fill(self) -> None:
         """Start the next wave when it is due, exactly as planned: its arenas start on one
@@ -786,11 +431,7 @@ class ArenaServer:
         if not groups:
             self.next_wave_ns = None
             return
-        for g in groups:
-            for pair in itertools.combinations(g, 2):
-                key = frozenset(pair)
-                self.met[key] = self.met.get(key, 0) + 1
-        self.last_groups = {frozenset(g) for g in groups}
+        self.played(groups)
         dealt = {name for g in groups for name in g}
         sitters = list(self.plan_waitlist)
         self.queue = [b for b in self.queue if b.name not in dealt]
@@ -871,15 +512,6 @@ class ArenaServer:
         except (ConnectionError, OSError, TimeoutError):
             pass
 
-    def spelling(self, name: str) -> str | None:
-        """The spelling the server knows `name` by, ignoring case: a connected bot's, a
-        standings row's or a leaderboard row's; None for a new name."""
-        key = name.lower()
-        for known in (*self.bots, *self.standings.awards, *self.leaderboard.rows):
-            if known.lower() == key:
-                return known
-        return None
-
     async def handle(self, sock: ws.WebSocket, path: str) -> None:
         """A bot's connection: its hello, then its moves until it leaves. Any exception is
         logged as one line, not raised."""
@@ -940,45 +572,13 @@ class ArenaServer:
         self.enqueue(bot)
         return bot
 
-    def refuse(self, sock: ws.WebSocket, hello: dict | None) -> tuple[str, str] | None:
-        """Why `hello` is refused, as `(code, message)`; None to welcome it."""
-        if hello is None or hello.get("type") != "hello":
-            return "bad_message", "the first message must be hello"
-        name = hello.get("name")
-        if not isinstance(name, str) or not NAME.fullmatch(name):
-            return "bad_name", "name: 1 to 12 characters of A-Z a-z 0-9 _ -"
-        if type(hello.get("protocol")) is not int or hello["protocol"] != PROTOCOL:
-            return "bad_protocol", f"this server speaks protocol {PROTOCOL}"
-        if name.lower() in self.standings.banned:
-            return "banned", f"name {name!r} is banned"
-        if name in self.bots:
-            return "name_taken", f"name {name!r} is already connected"
-        spelling = self.spelling(name)
-        if spelling is not None and spelling != name:
-            return "name_taken", f"name {name!r} is taken as {spelling!r}; connect as {spelling!r}"
-        if name.lower() in self.house:
-            return None
-        guests = [b for n, b in self.bots.items() if n.lower() not in self.house]
-        if self.max_bots is not None and len(guests) >= self.max_bots:
-            return "full", f"the arena is full ({self.max_bots} bots)"
-        if self.max_bots_per_ip is not None and sum(
-                b.sock.ip == sock.ip for b in guests) >= self.max_bots_per_ip:
-            return "too_many", f"at most {self.max_bots_per_ip} bots from one address at once"
-        return None
-
     async def listen(self, bot: Bot) -> None:
         """A bot's moves until it leaves, or breaks a limit or the protocol (an `error`)."""
         sock = bot.sock
-        tick_ns = self.rules.tick_ms * 1_000_000
-        window, count, size = 0, 0, 0  # the current tick-long window: its start, messages, size
+        flood = Flood(self.rules.tick_ms * 1_000_000)
         while (text := await sock.recv()) is not None:
             now = time.perf_counter_ns()
-            if now - window >= tick_ns:
-                window, count, size = now, 0, 0
-            count += 1
-            size += (len(text.encode("utf-8")) if isinstance(text, str) and not text.isascii()
-                     else len(text))  # bytes for a binary message
-            if count > FLOOD_MESSAGES or size > FLOOD_BYTES:
+            if flood.add(text, now):
                 await bot.stop()
                 await self.error(sock, "flooding", f"at most {FLOOD_MESSAGES} messages and "
                                                    f"{FLOOD_BYTES} bytes within one tick")
@@ -995,13 +595,3 @@ class ArenaServer:
             await bot.stop()
             await self.too_big(sock)
 
-
-def parse(text) -> dict | None:
-    """A message as a dict; None when it is not a JSON object."""
-    if not isinstance(text, str):
-        return None
-    try:
-        msg = json.loads(text)
-    except (ValueError, RecursionError):  # deeply nested JSON is no message either
-        return None
-    return msg if isinstance(msg, dict) else None
