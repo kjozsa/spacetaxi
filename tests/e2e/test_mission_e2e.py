@@ -9,6 +9,7 @@ import re
 
 import pytest
 
+from spacetaxi import ws
 from spacetaxi.maps import load_map
 from spacetaxi.milestones import MILESTONES
 from spacetaxi.server import ArenaServer
@@ -316,5 +317,36 @@ def test_mission_next_line_links_to_watch_and_the_waitlist_does_not(browser, ser
     follow(page, waiting, "window.spacetaxi.where.startsWith('WAITLIST')")
     assert where_link(page) is None
     assert page.locator("#where").inner_text().startswith("WAITLIST #1:")
+    page.close()
+    assert errors == []
+
+
+def test_mission_link_follows_the_state_across_polls_without_a_reload(browser, serve_arena):
+    server = ArenaServer({"cavern": load_map("cavern")}, RULES, 600, seed=1)
+    base, _, loop = serve_arena(server)
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.goto(base + "/mission")
+    follow(page, "AnNa", "window.spacetaxi.where === 'not connected'")
+    assert where_link(page) is None
+
+    async def join():
+        sock = await ws.connect(base.replace("http", "ws") + "/bot")
+        return sock, asyncio.ensure_future(scripted_bot(0, "anna", sock))
+
+    sock, bot = asyncio.run_coroutine_threadsafe(join(), loop).result(10)
+    page.wait_for_function("window.spacetaxi.where.startsWith('NEXT:')", timeout=15000)
+    assert where_link(page) == ["WATCH", "/watch?bot=AnNa"]
+
+    async def leave():
+        bot.cancel()   # one reader per socket: stop the bot before the closing handshake
+        await asyncio.gather(bot, return_exceptions=True)
+        await sock.close()
+
+    asyncio.run_coroutine_threadsafe(leave(), loop).result(10)
+    page.wait_for_function("window.spacetaxi.where === 'not connected'", timeout=15000)
+    assert where_link(page) is None
+    assert page.locator("#where").inner_text() == "not connected"
     page.close()
     assert errors == []
