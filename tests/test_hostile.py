@@ -568,6 +568,20 @@ def test_bots_that_keep_streaming_after_an_error_do_not_stall_the_ticks(serve):
     assert "+ noisy0 joined" in srv.stop()
 
 
+@pytest.mark.parametrize("data", [b"hello", b"\xff\xfe\x00"], ids=["ascii", "high-bytes"])
+def test_a_binary_message_as_a_move_is_a_bad_message(serve, data):
+    srv = serve()
+    bot = Raw(srv.port)
+    bot.hello("binary")
+    assert bot.until("welcome")["type"] == "welcome"
+    bot.send(data, opcode=ws.BINARY)
+    got = bot.until("error")
+    assert got is not None, "closed without an error:\n" + srv.output()
+    assert got["code"] == "bad_message"
+    bot.close()
+    assert "! binary" not in srv.stop()
+
+
 def test_more_than_128_kb_within_one_tick_is_flooding():
     async def main():
         server = ArenaServer({"cavern": load_map("cavern")}, Rules(tick_ms=1000), 60, seed=1)
