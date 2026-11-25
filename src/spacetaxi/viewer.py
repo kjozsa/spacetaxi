@@ -16,6 +16,14 @@ from spacetaxi.sim import Rules
 
 WEB_DIR = Path(__file__).parent / "web"
 
+# The script files each mode's page joins at `/*SCRIPT*/`, in order: the player, then live mode
+# (/watch), then fly mode (/fly, whose round plays through the live view).
+SCRIPTS = {
+    "replay": ["viewer.js"],
+    "live": ["viewer.js", "viewer-live.js"],
+    "fly": ["viewer.js", "viewer-live.js", "viewer-fly.js"],
+}
+
 STATES = {"flying": 0, "landed": 1, "crashed": 2}
 
 
@@ -176,7 +184,7 @@ def page(rounds: list[dict], mode: str) -> str:
     data = data.replace("<", "\\u003c")
     font = base64.b64encode((WEB_DIR / "PressStart2P-Regular.ttf").read_bytes()).decode("ascii")
     template = (WEB_DIR / "viewer.html").read_text(encoding="utf-8")
-    script = (WEB_DIR / "viewer.js").read_text(encoding="utf-8")
+    script = "\n".join((WEB_DIR / name).read_text(encoding="utf-8") for name in SCRIPTS[mode])
     if mode != "live":  # only /watch puts the page links into its own bar (spacetaxi.nav)
         template = template.replace(PLACEHOLDER, "")
     return (template
