@@ -27,10 +27,10 @@ same commands without `scripts/arena.fish` straight into T1 (`lesson 3` + Enter)
    scripts/arena.fish down
    ```
 
-3. T1, start a fresh race on cavern, with classic ready for the twist:
+3. T1, start a fresh race on classic, with cavern ready for the twist:
 
    ```fish
-   scripts/arena.fish up --fresh -m cavern -m classic
+   scripts/arena.fish up --fresh -m classic -m cavern
    ```
 
    Check its first lines: the `mission http://ADDRESS:8000/mission` address must be the
@@ -149,15 +149,20 @@ In the rehearsal 2 of 6 beat greedy in 88 minutes of racing, and nobody beat pil
 
 ### ~2:00 The map twist and pit stop 3 (~5 min)
 
-1. Switch the next wave to classic (T1 answers `next wave: classic`):
+Classic is open space with a few loose wall blocks; cavern has a shelf under every pad and
+long walls across. A bot that flies straight lines got away with it on classic and hits walls
+on cavern; one that plans a path from the map keeps earning (pilot loses ~18%, greedy crashes
+2.5 times as often).
+
+1. Switch the next wave to cavern (T1 answers `next wave: cavern`):
 
    ```fish
-   scripts/arena.fish map classic
+   scripts/arena.fish map cavern
    ```
 
-2. Projector: `/watch`. Its INSERT COIN splash names CLASSIC; the wave after the current one
+2. Projector: `/watch`. Its INSERT COIN splash names CAVERN; the wave after the current one
    plays it (at most ~85 s).
-3. Once classic is flying, every bot has had it in a `round_start`: run
+3. Once cavern is flying, every bot has had it in a `round_start`: run
    [Pit stop 3](#3-is-it-a-general-bot-5-min-room-wide-at-the-map-twist) below.
 4. End it:
 
@@ -171,7 +176,19 @@ In the rehearsal 2 of 6 beat greedy in 88 minutes of racing, and nobody beat pil
 2. The author vs fresh review tally from pit stop 2.
 3. An exam objective named for each failure seen.
 4. A 60-second "defend your design" from two or three volunteers.
-5. Open the last lesson, then put all six on the projector:
+5. The canyon demo, a third map nobody raced on: closed chambers, corridors, overhangs. One
+   round of the pilot house bot against three greedy ones, as a replay page (no internet
+   needed; click to start, `4` plays at 4x):
+
+   ```fish
+   scripts/sim.fish -m canyon -b pilot,greedy,greedy,greedy -n 1
+   ```
+
+   Pilot plans paths and delivers 4 passengers ($370); the three greedy bots, flying straight
+   lines, earn $0.
+   Ask: "would yours survive this?" Not raced on purpose: most bots would sit at $0, and its
+   benchmarks would hand out `beat_greedy` for one delivery.
+6. Open the last lesson, then put all six on the projector:
 
    ```fish
    scripts/arena.fish lesson 6
@@ -196,7 +213,7 @@ The race (standings, log, replays) stays in `out/arena/8000/`; the next `up --fr
 | A participant gets `name_taken` | an old copy of their bot is still running: have them stop it (or `kick NAME`), then start one |
 | A participant gets `bad_name` | a name with an accent or a space: 1-12 of `A-Z a-z 0-9 _ -` |
 | Someone can't connect | same WiFi as the server? the URL from `/mission`, not `localhost` |
-| The arena died | T1: `scripts/arena.fish up -m cavern -m classic` (no `--fresh`: the race and the revealed lessons are kept; the lessons key is new, `scripts/arena.fish lesson` prints it); the house bots reconnect by themselves |
+| The arena died | T1: `scripts/arena.fish up -m classic -m cavern` (no `--fresh`: the race and the revealed lessons are kept; the lessons key is new, `scripts/arena.fish lesson` prints it); the house bots reconnect by themselves |
 | `/watch` keeps showing a pit stop you already held | open its lesson: `scripts/arena.fish lesson 3` (or `4`) |
 | Lost track of which lessons are open | `scripts/arena.fish lesson` |
 
@@ -245,7 +262,7 @@ standings, whichever is more; house bots and banned names never count:
 ### 3. Is it a general bot? (~5 min, room-wide, at the map twist)
 
 - Add the new map to the eval and run it before changing any code.
-- Look at whose bot held up and whose was tuned to cavern.
+- Look at whose bot held up and whose was tuned to classic.
 - Teaches test-set coverage (4.1).
 
 ## Lessons

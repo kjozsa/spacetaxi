@@ -172,9 +172,9 @@ the server's address and their name filled in (`serve` prints the URL). Their ag
 brief, `http://HOST:8000/brief` (raw Markdown at `/brief.md`, from [docs/brief.md](docs/brief.md));
 the milestones are for the people, who slice the work one small prompt per milestone. During the race keep `/standings` on the projector.
 For a mid-race twist that shows whose agent built a general bot rather than one tuned to one map,
-start `serve` with every map you may use (`--map cavern --map classic`) and type `map classic` in
+start `serve` with every map you may use (`--map classic --map cavern`) and type `map cavern` in
 its terminal (or, with `serve --control PATH`, write it into that named pipe:
-`echo 'map classic' > PATH`): the next wave plays classic, bots stay connected, and the INSERT
+`echo 'map cavern' > PATH`): the next wave plays cavern, bots stay connected, and the INSERT
 COIN splash on `/watch` names the next map.
 Each participant keeps `http://HOST:8000/mission` open next to their agent: it shows only their
 next milestone (goal, a hint phrased as a question, a ready prompt for the first one only, from
@@ -233,10 +233,10 @@ keeps its state (standings, log, replays, pid files, bot logs, the control pipe)
 A workshop run, `up` in one terminal and the rest in another:
 
 ```fish
-scripts/arena.fish up --fresh -m cavern -m classic   # a new race; Ctrl-C or down stops it
+scripts/arena.fish up --fresh -m classic -m cavern   # a new race; Ctrl-C or down stops it
 scripts/arena.fish house                             # one pilot and one greedy fill the rounds
 scripts/arena.fish open                              # watch and standings
-scripts/arena.fish map classic                       # the mid-race twist
+scripts/arena.fish map cavern                        # the mid-race twist
 scripts/arena.fish down                              # the end
 ```
 
