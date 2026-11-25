@@ -406,6 +406,8 @@ def test_kick_and_ban_from_the_control_pipe(serve, tmp_path):
     back.hello("Spam")
     assert back.until("error")["code"] == "banned"
     assert "Spam" not in names("/standings.json", "standings")
+    kid_row = [r for r in srv.get("/standings.json")["standings"] if r["name"] == "kid"][0]
+    assert kid_row["milestones"]["hello"]["place"] == 1  # Spam's place went to the next
     assert "Spam" not in names("/leaderboard.json", "leaderboard")
     board = srv.get("/leaderboard.json")
     assert "Spam" not in board["next_wave"]["waitlist"] + sum(board["next_wave"]["arenas"], [])

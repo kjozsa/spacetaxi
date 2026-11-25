@@ -13,7 +13,7 @@ from spacetaxi import ws
 from spacetaxi.cli import main
 from spacetaxi.maps import load_map
 from spacetaxi.milestones import (LIFTOFF_TICKS, MILESTONES, POINTS, Standings, Tracker,
-                                  benchmarks)
+                                  benchmarks, points)
 from spacetaxi.runner import run
 from spacetaxi.server import Arena, ArenaServer
 from spacetaxi.sim import Rules
@@ -509,3 +509,18 @@ def test_server_house_bot_plays_but_never_scores():
     standings = json.loads(server.http("/standings.json")[2])["standings"]
     assert [r["name"] for r in standings] == ["anna"]
 
+
+
+def test_removing_a_name_moves_the_names_behind_it_up():
+    s = Standings()
+    s.award("hello", [("spam", 0)])
+    s.award("hello", [("anna", 0), ("bob", 0)])  # a tie for P2
+    s.award("hello", [("cid", 0)])
+    s.award("landed", [("anna", 0)])
+    assert s.remove("SPAM") and not s.remove("nobody")
+    assert s.awards["anna"]["hello"] == {"place": 1, "points": points(1)}
+    assert s.awards["bob"]["hello"] == {"place": 1, "points": points(1)}
+    assert s.awards["cid"]["hello"] == {"place": 3, "points": points(3)}
+    assert s.awards["anna"]["landed"]["place"] == 1
+    assert s.reached("hello") == 3
+    assert s.award("hello", [("dan", 0)])[0]["place"] == 4

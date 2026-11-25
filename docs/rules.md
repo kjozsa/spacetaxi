@@ -238,7 +238,11 @@ Limits, so one buggy or hostile client cannot spoil the race for the others:
   the `hello` gets `error` `too_many` or `full`.
 - The operator can disconnect a bot (`kick`, `error` `kicked`) or ban its name (`ban`, `error`
   `banned`): a banned name is refused from then on, ignoring case, and is left out of the
-  standings, the leaderboard and the plan of the next wave until the operator lifts the ban.
+  leaderboard and the plan of the next wave until the operator lifts the ban. Its milestone
+  places are dropped for good: the names behind it on each milestone move up a place, keeping
+  their order and ties, and get that place's points; the next name to reach it takes the
+  place after them.
+- A spectator that sends a message is disconnected.
 
 Spectators (the live viewer at `http://HOST:PORT/watch`) connect to `ws://HOST:PORT/spectate`
 and send nothing. The server first sends `{"type": "spectate", "arenas": 3}` (how many arenas

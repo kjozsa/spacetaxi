@@ -27,7 +27,8 @@ MAX_MESSAGE = 16 * 1024 * 1024  # the default limit: refuse anything bigger, so 
 # cannot eat the memory; `serve` takes a smaller one per path
 
 MAX_FRAGMENTS = 1024  # frames one message may be split into; more count as too big
-YIELD_EVERY = 64  # frames read before `recv` lets the other tasks run, even with data buffered
+YIELD_EVERY = 16  # frames read (over all `recv` calls) before the other tasks get to run,
+# even with more frames buffered
 CLOSE_TIMEOUT = 1.0  # seconds a close may wait for a peer that does not read
 
 REASONS = {101: "Switching Protocols", 200: "OK", 400: "Bad Request", 404: "Not Found",
@@ -112,6 +113,7 @@ class WebSocket:
         self.reader = reader
         self.max_message = max_message
         self.too_big = False
+        self._frames = 0  # frames read so far
         self.writer = writer
         self.client = client
         self.path = path
@@ -152,11 +154,8 @@ class WebSocket:
         parts: list[bytes] = []
         size = 0  # bytes in parts
         kind = None
-        frames = 0
         while not self.closed:
-            frames += 1
-            if frames % YIELD_EVERY == 0:
-                await asyncio.sleep(0)
+            await self._count_frame()
             try:
                 fin, opcode, payload, masked = await read_frame(
                     self.reader, max(125, self.max_message - size))
@@ -202,6 +201,13 @@ class WebSocket:
                     return None
         return None
 
+    async def _count_frame(self) -> None:
+        """Let the other tasks run every `YIELD_EVERY` frames read from this socket, so a peer
+        streaming tiny frames cannot hold the event loop."""
+        self._frames += 1
+        if self._frames % YIELD_EVERY == 0:
+            await asyncio.sleep(0)
+
     async def _finish_close(self, code: int) -> None:
         """The peer sent a close: echo it (if we have not sent ours) and drop the connection."""
         if not self._close_sent:
@@ -243,6 +249,7 @@ class WebSocket:
                     self._close_sent = True
                     await self._send_frame(CLOSE, struct.pack("!H", code))
                 while not self.closed:
+                    await self._count_frame()
                     fin, opcode, payload, masked = await read_frame(self.reader,
                                                                     self.max_message)
                     if opcode == CLOSE:

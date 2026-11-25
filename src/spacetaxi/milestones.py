@@ -126,6 +126,24 @@ class Standings:
             place += len(group)
         return out
 
+    def remove(self, name: str) -> bool:
+        """Take `name` (ignoring case) out of the race: its awards are dropped and the names
+        behind it on each milestone move up, keeping their order and ties, with the points of
+        their new place. Returns whether it had any."""
+        key = next((n for n in self.awards if n.lower() == name.lower()), None)
+        if key is None:
+            return False
+        gone = self.awards.pop(key)
+        for milestone in gone:
+            got = sorted((a["place"], n) for n, m in self.awards.items()
+                         for ms, a in m.items() if ms == milestone)
+            for i, (old, n) in enumerate(got):
+                before = got[i - 1] if i else None
+                place = (self.awards[before[1]][milestone]["place"]
+                         if before and before[0] == old else i + 1)
+                self.awards[n][milestone] = {"place": place, "points": points(place)}
+        return True
+
     def save(self) -> None:
         if not self.path:
             return

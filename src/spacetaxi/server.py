@@ -490,6 +490,7 @@ class ArenaServer:
             return f"ban: {name!r} is already banned"
         bot = self.connected(name)
         self.standings.banned.add(key)
+        self.standings.remove(name)
         self.standings.save()
         if bot is not None:
             self.disconnect(bot, "banned", "the operator banned this name")
@@ -858,8 +859,9 @@ class ArenaServer:
                     spectator.send(arena.shown[kind])
         self.spectators.add(spectator)
         try:
-            while await sock.recv() is not None:
-                pass
+            # spectators send nothing: one that does is dropped at once, without draining it
+            if await sock.recv() is not None:
+                await sock.abort(1008)
         except Exception as exc:
             self.say(f"! spectator {sock.peer}: {type(exc).__name__} {str(exc)[:200]}")
         finally:
