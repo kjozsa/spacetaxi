@@ -314,6 +314,13 @@ function renderWhere() {
   window.spacetaxi.where = text || null;
   $("where").textContent = text;
   $("where").className = text === "not connected" ? "off" : "";
+  // flying now or seated in the next wave: one click to /watch following the bot
+  if (text.startsWith("NOW:") || text.startsWith("NEXT:")) {
+    const a = document.createElement("a");
+    a.href = `/watch?bot=${encodeURIComponent(st.name)}`;
+    a.textContent = "WATCH";
+    $("where").append(" ", a);
+  }
 }
 
 function update(data) {
