@@ -82,7 +82,9 @@ class Pages:
     def pitstop(self) -> dict | None:
         """The next pit stop (a lesson with `Pit stop: MILESTONE` that is not revealed yet), or
         None: its number, milestone and lesson, how many participants (the standings but house
-        bots and bans) reached the milestone, and `due` once at least half of them have."""
+        bots and bans) reached the milestone, and `due` once at least half of them have. The
+        participants are the head count the operator gave (`room N`) or the standings, whichever
+        is more, so the room's late arrivals count before their bots connect."""
         revealed = self.standings.lessons
         stops = [(i, l) for i, l in enumerate(parse_lessons(doc_text("lessons.md"))) if l["pitstop"]]
         for number, (i, lesson) in enumerate(stops, 1):
@@ -90,9 +92,10 @@ class Pages:
                 continue
             rows = self.standings.table(self.house | self.standings.banned)
             reached = sum(lesson["pitstop"] in r["milestones"] for r in rows)
-            need = max(1, -(-len(rows) // 2))
+            participants = max(self.standings.room, len(rows))
+            need = max(1, -(-participants // 2))
             return {"number": number, "milestone": lesson["pitstop"], "lesson": lesson["n"],
-                    "participants": len(rows), "reached": reached, "need": need,
+                    "participants": participants, "reached": reached, "need": need,
                     "due": bool(rows) and reached >= need}
         return None
 

@@ -43,6 +43,15 @@ same commands without `scripts/arena.fish` straight into T1 (`lesson 3` + Enter)
    ```
 
    `status` should say `house: ace gus`. Within a minute `/watch` shows them flying.
+5. Once everyone is seated, count heads and tell the arena (here 11), so a pit stop waits for
+   half the room, not half of the bots connected so far:
+
+   ```fish
+   scripts/arena.fish room 11
+   ```
+
+   Someone arrives late: raise it (`room 13`). The standings count instead whenever they hold
+   more participants than you said.
 5. Projector: `http://localhost:8000/slides` (needs internet for reveal.js). Keep the `/watch`
    and `/standings` tabs `open` made for later.
 6. From a phone on the venue WiFi, open `http://ADDRESS:8000/mission`: it must load.
@@ -181,7 +190,9 @@ The fast ones keep going through the chapter talks; nothing is gated by the cloc
 ## Pit stops
 
 The bot keeps racing during a pit stop, so nothing is lost by stopping. Pit stops 1 and 2 are
-for the whole room, called when half the participants have reached their milestone:
+for the whole room, called when half the participants have reached their milestone. The
+participants are your head count (`scripts/arena.fish room N`, setup step 5) or the bots in the
+standings, whichever is more; house bots and banned names never count:
 
 - `/watch` shows the next one under the leaderboard and on the splash ("PIT STOP 1 AT
   TOUCHDOWN, 2 OF 6 NEEDED"), and it turns pink, "DUE", at half the room. `serve` says it too.

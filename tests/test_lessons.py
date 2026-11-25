@@ -138,6 +138,26 @@ def test_the_next_pit_stop_is_due_at_half_the_participants_and_over_when_its_les
     assert s.pitstop() is None
 
 
+def test_the_head_count_in_the_room_raises_what_a_pit_stop_needs_and_is_kept(tmp_path):
+    path = tmp_path / "standings.json"
+    s = server(path)
+    for name in ("anna", "bob", "cy", "dee"):
+        award(s, name, "hello", "touchdown")
+    assert s.pitstop()["due"]
+    assert s.command("room 11") == "room: 11 participants, 4 in the standings; pit stop 1 is due at 6"
+    stop = s.pitstop()
+    assert (stop["participants"], stop["need"], stop["due"]) == (11, 6, False)
+    award(s, "eve", "hello", "touchdown")
+    award(s, "fay", "hello", "touchdown")
+    assert s.pitstop()["due"]
+    assert server(path).standings.room == 11
+    s.command("room 2")  # the standings hold more: they count
+    assert s.pitstop()["participants"] == 6
+    assert s.command("room") == "room: 2 participants, 6 in the standings; pit stop 1 is due at 3"
+    assert s.command("room 0").startswith("room: not set, 6 in the standings")
+    assert (s.command("room x") or "").startswith("room: the number")
+
+
 def test_serve_says_once_that_a_pit_stop_is_due():
     s = server()
     said: list[str] = []

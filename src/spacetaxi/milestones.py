@@ -89,11 +89,13 @@ class Standings:
         self.awards: dict[str, dict[str, dict]] = {}  # name -> milestone -> {place, points}
         self.banned: set[str] = set()  # names the operator banned, lowercased
         self.lessons = 0  # lessons the operator revealed to the whole room (the first N)
+        self.room = 0  # participants the operator counted in the room (0: count the standings)
         if self.path and self.path.exists():
             data = json.loads(self.path.read_text(encoding="utf-8"))
             try:
                 self.banned = {str(n).lower() for n in data.get("banned", [])}
                 self.lessons = int(data.get("lessons", 0))
+                self.room = int(data.get("room", 0))
                 for name, got in data["awards"].items():
                     self.awards[name] = {m: {"place": int(a["place"]),
                                              "points": int(a["points"])}
@@ -150,7 +152,7 @@ class Standings:
             return
         tmp = self.path.with_name(self.path.name + ".tmp")
         tmp.write_text(json.dumps({"awards": self.awards, "banned": sorted(self.banned),
-                                   "lessons": self.lessons},
+                                   "lessons": self.lessons, "room": self.room},
                                   indent=1) + "\n", encoding="utf-8")
         os.replace(tmp, self.path)
 

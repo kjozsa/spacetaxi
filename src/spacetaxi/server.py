@@ -35,7 +35,8 @@ the operator typed (`map NAME`, `maps`): `map NAME` sets the map of the next wav
 progress finishes on its map. All arenas of a wave play one map, named in `round_start` as
 `map_name`, and their `beat_greedy` / `beat_pilot` compare against that map's benchmarks.
 `lesson N` opens lessons 1 to N
-on every `/lessons` page (kept in the standings file). `kick NAME` disconnects a bot; `ban NAME` disconnects it, refuses the name from then on and
+on every `/lessons` page; `room N` is the head count a pit stop needs half of (both kept in the
+standings file). `kick NAME` disconnects a bot; `ban NAME` disconnects it, refuses the name from then on and
 leaves it out of the standings, the leaderboard and the plan (bans are kept in the standings
 file); `unban NAME` lifts it. An exception in one connection's handler is logged as one line.
 """
@@ -319,8 +320,11 @@ class ArenaServer(Plan, Race, Admission, Pages):
             return getattr(self, words[0])(words[1])
         if words[0] == "lesson" and len(words) <= 2:
             return self.lesson(words[1] if len(words) == 2 else None)
+        if words[0] == "room" and len(words) <= 2:
+            return self.room(words[1] if len(words) == 2 else None)
         return ("commands: map NAME (the next wave's map), maps (list them), kick NAME, "
-                "ban NAME, unban NAME, lesson N (reveal lessons 1 to N to everyone, 0 hides)")
+                "ban NAME, unban NAME, lesson N (reveal lessons 1 to N to everyone, 0 hides), "
+                "room N (the participants in the room, for the pit stops; 0 counts the standings)")
 
     def lesson(self, arg: str | None) -> str:
         """`lesson N`: lessons 1 to N open on every /lessons page; `lesson` alone tells how many."""
@@ -333,6 +337,21 @@ class ArenaServer(Plan, Race, Admission, Pages):
         self.standings.lessons = int(arg)
         self.standings.save()
         return f"lessons revealed to everyone: {self.standings.lessons} of {total}"
+
+    def room(self, arg: str | None) -> str:
+        """`room N`: the head count in the room; a pit stop is due at half of it, or of the
+        participants in the standings when they are more. `room` alone tells both."""
+        if arg is not None:
+            if not arg.isdigit() or int(arg) > 999:
+                return "room: the number of participants in the room (0: count the standings)"
+            self.standings.room = int(arg)
+            self.standings.save()
+        rows = len(self.standings.table(self.house | self.standings.banned))
+        room = self.standings.room
+        said = f"room: {room} participants" if room else "room: not set"
+        stop = self.pitstop()
+        need = f"; pit stop {stop['number']} is due at {stop['need']}" if stop else ""
+        return f"{said}, {rows} in the standings{need}"
 
     def connected(self, name: str) -> Bot | None:
         """The connected bot of `name`, ignoring case."""
