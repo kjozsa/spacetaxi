@@ -220,7 +220,7 @@ keeps its state (standings, log, replays, pid files, bot logs, the control pipe)
 
 | command | what it does |
 | --- | --- |
-| `up [-m MAP]... [--fresh] [-r KEY=VALUE]... [-f SECONDS]` | serve the arena in the foreground, house bot names reserved; `--fresh` archives the race so far to `archive-<timestamp>/` |
+| `up [-m MAP]... [--fresh] [-r KEY=VALUE]... [-f SECONDS] [-b [MAP:]BOT=MONEY]...` | serve the arena in the foreground, house bot names reserved; `--fresh` archives the race so far to `archive-<timestamp>/`; `-b` gives a benchmark so it is not simulated (the simulation is seeded: the same map and rules always give the same values, printed as `benchmarks on MAP` at start) |
 | `house [pilot\|greedy] [-n N]` | start house bots in the background: `ace`, `ace2`, `ace3` fly pilot, `gus`, `gus2`, `gus3` greedy |
 | `unhouse [NAME\|all]` | stop house bots started by `house` |
 | `map NAME`, `maps` | switch the next wave's map, list the maps (answered in `up`'s output) |

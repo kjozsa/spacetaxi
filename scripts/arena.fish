@@ -4,7 +4,7 @@
 
 function usage
     echo "usage: scripts/arena.fish <command> [-p PORT] [options]"
-    echo "  up [-m MAP]... [--fresh] [-r KEY=VALUE]... [-f SECONDS]"
+    echo "  up [-m MAP]... [--fresh] [-r KEY=VALUE]... [-f SECONDS] [-b [MAP:]BOT=MONEY]..."
     echo "                     serve the arena in the foreground (Ctrl-C stops)"
     echo "  house [pilot|greedy] [-n N]"
     echo "                     start N house bots of that kind (default one pilot, one greedy)"
@@ -25,6 +25,7 @@ function usage
     echo "  --fresh       archive the race so far (standings, log, replays) and start a new one"
     echo "  -r, --rule    override a rule constant, e.g. -r round_ticks=300 (repeatable)"
     echo "  -f, --fill    seconds from a bot joining or a wave ending to the next wave (default 10)"
+    echo "  -b, --benchmark  a known benchmark, e.g. -b cavern:pilot=662 (repeatable): no simulating it"
     echo "  -n, --number  how many house bots of each kind (default 1)"
     echo "house bots are named ace, ace2, ace3 (pilot) and gus, gus2, gus3 (greedy)"
 end
@@ -50,7 +51,7 @@ if not contains -- $cmd up house unhouse map maps kick ban unban lesson room sta
     exit 2
 end
 
-argparse h/help 'p/port=' 'm/map=+' fresh 'r/rule=+' 'f/fill=' 'n/number=' -- $argv
+argparse h/help 'p/port=' 'm/map=+' fresh 'r/rule=+' 'f/fill=' 'n/number=' 'b/benchmark=+' -- $argv
 or begin
     usage >&2
     exit 2
@@ -125,6 +126,9 @@ switch $cmd
             set -a extra --rule $r
         end
         set -q _flag_fill; and set -a extra --fill-seconds $_flag_fill
+        for b in $_flag_benchmark
+            set -a extra --benchmark $b
+        end
         for name in $spare_pilot $spare_greedy
             set -a extra --house $name
         end

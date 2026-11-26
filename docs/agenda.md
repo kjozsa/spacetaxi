@@ -217,7 +217,7 @@ The race (standings, log, replays) stays in `out/arena/8000/`; the next `up --fr
 | A participant gets `name_taken` | an old copy of their bot is still running: have them stop it (or `kick NAME`), then start one |
 | A participant gets `bad_name` | a name with an accent or a space: 1-12 of `A-Z a-z 0-9 _ -` |
 | Someone can't connect | same WiFi as the server? the URL from `/mission`, not `localhost` |
-| The arena died | T1: `scripts/arena.fish up -m classic -m cavern` (no `--fresh`: the race and the revealed lessons are kept; the lessons key is new, `scripts/arena.fish lesson` prints it); the house bots reconnect by themselves |
+| The arena died | T1: `scripts/arena.fish up -m classic -m cavern -b classic:greedy=428 -b classic:pilot=710 -b cavern:greedy=536 -b cavern:pilot=662` (the `-b` values are the benchmarks every start simulates anyway, so it skips that; no `--fresh`: the race and the revealed lessons are kept; the lessons key is new, `scripts/arena.fish lesson` prints it); the house bots reconnect by themselves |
 | `/watch` keeps showing a pit stop you already held | open its lesson: `scripts/arena.fish lesson 3` (or `4`) |
 | Lost track of which lessons are open | `scripts/arena.fish lesson` |
 
