@@ -168,6 +168,10 @@ In the rehearsal 2 of 6 beat greedy in 88 minutes of racing, and nobody beat pil
   scripts/workshop.fish demo
   ```
 
+  The page opens by itself in a new browser tab (again later: `xdg-open out/classic-s1.html`;
+  canyon's is `out/canyon-s1.html`). Click INSERT COIN to start; Space pauses, `1`-`4` set
+  0.5x/1x/2x/4x (a round is ~19 s at 4x), the slider jumps, `M` mutes, `D` shows the debug.
+
   Pilot delivers 8 passengers ($742); the greedy ones 2 each ($99-162), losing money and time
   to walls. Say: "the bars on `/standings` are each house bot's best of 20 rounds. Watch where
   greedy loses its money, and what pilot does instead."
