@@ -31,8 +31,14 @@ same commands without `scripts/arena.fish` straight into T1 (`lesson 3` + Enter)
 3. T1, start a fresh race on classic, with cavern ready for the twist:
 
    ```fish
-   scripts/arena.fish up --fresh -m classic -m cavern
+   scripts/arena.fish up --fresh -m classic -m cavern \
+       -b classic:greedy=428 -b classic:pilot=710 -b cavern:greedy=536 -b cavern:pilot=662
    ```
+
+   The `-b` values are the house bots' benchmarks (what `beat_greedy` and `beat_pilot` must
+   beat): seeded, so the same every start; given, the arena skips simulating them and
+   prints `benchmarks on classic (given)`. Without `-b` it works too, simulating them for
+   about 16 s.
 
    Check its first lines: the `mission http://ADDRESS:8000/mission` address must be the
    venue WiFi one (not `10.47.x`, `100.x` or `172.x`). If it is wrong, Ctrl-C, fix the network,
