@@ -16,7 +16,8 @@ same commands without `scripts/arena.fish` straight into T1 (`lesson 3` + Enter)
 - [ ] Rehearse once at home: the "30 minutes before" block, a bot connected, `down`.
 - [ ] Tell the participants to come with Claude Code installed and logged in, and `uv`
   installed (`curl -LsSf https://astral.sh/uv/install.sh | sh`): setup is where chapter 1
-  loses its time.
+  loses its time. And: "we will use Haiku (`/model haiku` in Claude Code)": it is fast,
+  cheap, and what the rehearsal ran on.
 
 ### 30 minutes before
 
@@ -65,6 +66,9 @@ same commands without `scripts/arena.fish` straight into T1 (`lesson 3` + Enter)
 - On the last slide ("Go"), say:
   - "Open `http://ADDRESS:8000/mission`, type your bot's name (your first name, no accents),
     copy the prompt into your agent."
+  - **"First, switch Claude Code to Haiku: type `/model haiku`."** Walk the room once to
+    check: the model shows under the prompt box. Bigger models are slower per step and burn
+    the budget; the rehearsal timings are Haiku's.
   - "Don't start the agent yet: first, fly by hand."
 
 ### 0:10–0:20 Fly by hand
