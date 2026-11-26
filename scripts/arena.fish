@@ -195,7 +195,24 @@ switch $cmd
             fail "the arena on port $port is not running (start it with up)"
         end
         echo $line >$pipe
-        echo "sent '$line'; the answer is in the arena's output"
+        if test $cmd = map
+            # check that it took: a map not given to up with -m is refused, in the arena's output
+            py 'import json, sys, time, urllib.request
+port, want = sys.argv[1], sys.argv[2]
+for _ in range(20):
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/leaderboard.json", timeout=2) as r:
+            if json.load(r)["next_map"] == want:
+                sys.exit(0)
+    except Exception:
+        pass
+    time.sleep(0.1)
+sys.exit(1)' $port $argv[1]
+            and echo "next wave: $argv[1]"
+            or fail "map: the arena did not switch to '$argv[1]'; it switches only to the maps given to up with -m (maps lists them)"
+        else
+            echo "sent '$line'; the answer is in the arena's output"
+        end
 
     case status
         set running
