@@ -28,17 +28,19 @@ same commands without `scripts/arena.fish` straight into T1 (`lesson 3` + Enter)
    scripts/arena.fish down
    ```
 
-3. T1, start a fresh race on classic, with cavern ready for the twist:
+3. T1, start a fresh race on classic, with cavern ready for the twist and canyon loaded
+   (never raced; loaded so `map canyon` works if you want it):
 
    ```fish
-   scripts/arena.fish up --fresh -m classic -m cavern \
-       -b classic:greedy=428 -b classic:pilot=710 -b cavern:greedy=536 -b cavern:pilot=662
+   scripts/arena.fish up --fresh -m classic -m cavern -m canyon \
+       -b classic:greedy=428 -b classic:pilot=710 -b cavern:greedy=536 -b cavern:pilot=662 \
+       -b canyon:greedy=36 -b canyon:pilot=494
    ```
 
    The `-b` values are the house bots' benchmarks (what `beat_greedy` and `beat_pilot` must
    beat): seeded, so the same every start; given, the arena skips simulating them and
    prints `benchmarks on classic (given)`. Without `-b` it works too, simulating them for
-   about 16 s.
+   about 80 s (canyon alone takes a minute).
 
    Check its first lines: the `mission http://ADDRESS:8000/mission` address must be the
    venue WiFi one (not `10.47.x`, `100.x` or `172.x`). If it is wrong, Ctrl-C, fix the network,
@@ -223,7 +225,7 @@ The race (standings, log, replays) stays in `out/arena/8000/`; the next `up --fr
 | A participant gets `name_taken` | an old copy of their bot is still running: have them stop it (or `kick NAME`), then start one |
 | A participant gets `bad_name` | a name with an accent or a space: 1-12 of `A-Z a-z 0-9 _ -` |
 | Someone can't connect | same WiFi as the server? the URL from `/mission`, not `localhost` |
-| The arena died | T1: `scripts/arena.fish up -m classic -m cavern -b classic:greedy=428 -b classic:pilot=710 -b cavern:greedy=536 -b cavern:pilot=662` (the `-b` values are the benchmarks every start simulates anyway, so it skips that; no `--fresh`: the race and the revealed lessons are kept; the lessons key is new, `scripts/arena.fish lesson` prints it); the house bots reconnect by themselves |
+| The arena died | T1: `scripts/arena.fish up -m classic -m cavern -m canyon -b classic:greedy=428 -b classic:pilot=710 -b cavern:greedy=536 -b cavern:pilot=662 -b canyon:greedy=36 -b canyon:pilot=494` (the `-b` values are the benchmarks every start simulates anyway, so it skips that; no `--fresh`: the race and the revealed lessons are kept; the lessons key is new, `scripts/arena.fish lesson` prints it); the house bots reconnect by themselves |
 | `/watch` keeps showing a pit stop you already held | open its lesson: `scripts/arena.fish lesson 3` (or `4`) |
 | Lost track of which lessons are open | `scripts/arena.fish lesson` |
 
