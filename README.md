@@ -241,6 +241,14 @@ scripts/arena.fish map cavern                        # the mid-race twist
 scripts/arena.fish down                              # the end
 ```
 
+`scripts/workshop.fish` types the run sheet's long commands (`docs/agenda.md`):
+
+| command | what it does |
+|---|---|
+| `start [OPTIONS]` | `arena.fish up --fresh` on classic, with cavern and canyon loaded and the benchmarks given (`-b`), so none are simulated; OPTIONS go to `up` |
+| `restart [OPTIONS]` | the same without `--fresh`: the race so far goes on |
+| `demo [MAP]` | one round of pilot against three greedy on MAP (default classic) as a replay page |
+
 ## Write a bot
 
 ```sh
